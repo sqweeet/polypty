@@ -154,14 +154,21 @@ mouse capture, bracketed paste, курсор и autowrap host-терминала
 
 ## Структура кода
 
-Основные подсистемы разделены по ответственности:
+Подробная карта зависимостей, композиционных объектов, инвариантов и точек
+расширения находится в [docs/architecture.md](docs/architecture.md).
 
-- `app/` — event-loop state, ввод, рисование и lifecycle анимации сайдбара;
-- `render/` — независимые рендереры терминальной сетки и сайдбара;
-- `workspace/layout.rs` — дерево splits и расчёт геометрии pane;
-- `info/` — OSC metadata и foreground-process probes;
-- `tab/activity.rs` — причинная модель input/submit/resize/output для статусов
-  coding agents.
+- `runtime/` управляет host-терминалом, сигналами и event loop;
+- `app/` оркестрирует workspaces, ввод, resize, sidebar и render-`Presenter`;
+- `workspace/` владеет terminal sessions, split-деревом и фокусом, отдавая
+  read-only snapshot для кадра;
+- `session/` задаёт заменяемые session/factory ports, а `tab/` реализует их
+  через PTY, VT parser, metadata и agent evidence;
+- `render/` владеет diff-кешами и строит terminal grid, sidebar и dividers;
+- `core/` содержит общие value types геометрии без инфраструктурных зависимостей;
+- `agent/`, `info/`, `input/` и `platform/` содержат нижние модели и
+  OS-сервисы.
+
+CI ограничивает каждый Rust-файл, включая тесты, 150 физическими строками.
 
 ## License
 

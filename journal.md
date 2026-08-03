@@ -291,3 +291,98 @@
   shared one phase.
 - Independent detector, animation, and architecture audits found no remaining
   blocker after the cross-process OSC and erased-draft regressions were fixed.
+
+## 2026-08-03 — Round 11: architecture baseline and hard constraints
+
+### Audited
+
+- The previous refactor improved names but did not create a genuinely modular
+  architecture: 15 of 18 Rust files still exceed the requested 150-line limit.
+- The largest files mix several reasons to change: sidebar rendering is 1183
+  lines, the PTY tab aggregate 884, agent detection 841, terminal rendering 709,
+  and input encoding 646.
+- `App`, `Tab`, and `Workspace` are valid aggregate roots, but each currently
+  owns infrastructure, policy, state transitions, and presentation details in
+  the same file. Tests embedded beside production code hide the real size.
+
+### Architecture target
+
+- Convert the binary-only tree into a small library plus a thin executable.
+- Keep aggregate structs in domain `mod.rs` files and split their behavior into
+  capability modules; use composition objects for clocks, PTY I/O, detector
+  evidence, render caches, and registries.
+- Preserve stable facades while moving agent, app, input, metadata, render,
+  tab, and workspace logic into nested domain folders.
+- Enforce a physical maximum of 150 lines for every Rust source and test file
+  in CI, so the project cannot silently return to god files.
+
+### Next vectors
+
+- Build the dependency-safe domain skeleton and library facade.
+- Migrate independent agent/render/input domains first, then aggregate roots.
+- Extract tests by behavior, run full parity checks after each domain, and only
+  then introduce the architecture gate.
+
+## 2026-08-03 — Round 12: compositional domain architecture
+
+### Implemented
+
+- Converted the binary-only crate into a library with a six-line executable and
+  a `MuxRuntime` composition root. Host-terminal RAII, signals, resize watching,
+  and the event loop now live in isolated runtime modules.
+- Reduced `App` to composed `WorkspaceBook`, `Viewport`, `FrameScheduler`,
+  `Presenter`, `Clipboard`, and `SessionFactory` objects. Input, polling, resize,
+  lifecycle, and frame planning are independent capability modules.
+- Rebuilt `Workspace` as a domain-only aggregate of `PaneStore`, `SplitTree`,
+  and `FocusModel`. It depends on the `TerminalSession` port rather than `Tab`
+  or renderer code and exposes immutable `WorkspaceSnapshot` projections.
+- Moved every sidebar and terminal paint cache into `render::Presenter`, with
+  per-workspace renderers and per-pane `TermCache` state. Sidebar hit maps,
+  fingerprints, and independent glint epochs are presentation-owned too.
+- Composed `Tab` from `PtyTransport`, `TerminalEmulator`, `SessionMetadata`, and
+  `AgentTracker`; PTY queues, callbacks, draining, lifecycle, and causal agent
+  evidence are separate modules behind the session port.
+- Replaced scattered agent identity tables with one data-driven `AgentCatalog`.
+  Split input, OSC/process metadata, terminal/sidebar rendering, and their tests
+  into feature-owned packages with short façades.
+- Added injectable clipboard and session boundaries, including a fake-session
+  application test, and documented dependency direction, invariants, and
+  extension recipes in `docs/architecture.md`.
+- Added a CI architecture gate that rejects every Rust production or test file
+  above 150 physical lines.
+
+### Evidence
+
+- All Rust files pass the hard limit; the largest is 137 lines.
+- `cargo test --locked --all-features`: 94 passed, 0 failed.
+- Strict clippy, rustfmt, locked release build, and `git diff --check` pass.
+- A regression audit mapped every original behavior scenario, restored three
+  weakened assertions, and added a renderer test proving dirty PTY frames do
+  not repaint unchanged split dividers.
+- Dependency audit confirms `Workspace` imports neither `render` nor `Tab`,
+  `Presenter` is the sole paint-state owner, aggregate fields are private, and
+  only the runtime entry point is exported from the library.
+
+### Next vectors
+
+- Run one final independent architecture and live-TUI smoke audit.
+- Commit the migration in logical layers, push `main`, and verify remote CI.
+
+## 2026-08-03 — Round 13: closure audit
+
+### Verified
+
+- Moved the concrete `TerminalSession for Tab` adapter out of the session port,
+  leaving the domain boundary independent from its PTY implementation.
+- Narrowed `Presenter` to immutable `WorkspaceSnapshot` input and encapsulated
+  scheduler, viewport, and workspace-book state behind capability methods.
+- Repeated the live TUI smoke test with a split pane, a second tab, terminal
+  resize, visible output markers, and clean `Alt-q` shutdown.
+- Re-ran the architecture gate, rustfmt, strict clippy, all 94 tests, the locked
+  release build, and whitespace validation successfully.
+- Final independent audit found no remaining architecture or behavior blocker;
+  the largest Rust file remains 137 physical lines.
+
+### Next vectors
+
+- Push the logical commits to public `main` and require a green remote CI run.
