@@ -210,3 +210,24 @@
   `codex       READY` with the expected green badge SGR.
 - Independent audit found no color-math, cache, narrow-width, cursor, resize,
   or animation-performance blocker.
+
+## 2026-08-03 — Round 8: compact ready mark and cool glint
+
+### Implemented
+
+- Replaced the seven-cell `READY` word badge with a quiet three-cell ` ✓ `
+  mark aligned to the card's right edge. One- and two-cell sidebars keep an
+  exact-width fallback without dropping the symbol.
+- Muted the ready colors to a dark green background with a light glyph, keeping
+  the mark legible without competing with the explicit red blocked state.
+- Shifted the working highlight from warm neutral to restrained steel blue
+  while preserving the two-row phase, 80 ms cadence, and smooth interpolation.
+
+### Evidence
+
+- `cargo test`: 66 passed, 0 failed; strict clippy, rustfmt, release build, and
+  `git diff --check` pass.
+- Width tests cover the exact `✓`, ` ✓`, and ` ✓ ` narrow forms; color tests
+  pin the new ready and glint palettes and bound consecutive-frame RGB deltas.
+- A live tmux capture rendered `codex           ✓` and confirmed the expected
+  foreground/background SGR values. Independent audit reported no findings.
