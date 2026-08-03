@@ -1,14 +1,34 @@
 //! Lightweight coding-agent identification and live state detection.
 //!
 //! Process identity is authoritative for deciding whether a pane is an agent.
-//! Once identified, only the live terminal tail, OSC title, and recent PTY
-//! activity are used to classify its display state.
+//! Once identified, only the live terminal tail, OSC title, and recent
+//! unattributed PTY activity are used to classify its display state. Output
+//! caused by local input or resize is filtered by the tab before it gets here.
 
 use std::path::Path;
 use std::time::Duration;
 
 pub const SCAN_INTERVAL: Duration = Duration::from_millis(120);
 pub const ACTIVITY_WINDOW: Duration = Duration::from_millis(1_200);
+
+/// What locally initiated the latest PTY reaction. The reducer treats these
+/// differently: edits mean idle, resize preserves state, and a submitted
+/// prompt may start work once child output confirms it was handled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AgentInteraction {
+    None,
+    Editing,
+    SubmitPending,
+    Submitted,
+    Resizing,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AgentObservation {
+    pub previous: AgentState,
+    pub quiet_for: Duration,
+    pub interaction: AgentInteraction,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AgentKind {
@@ -234,15 +254,117 @@ fn identify_package_path(value: &str) -> Option<AgentKind> {
 pub fn detect_state(
     kind: AgentKind,
     screen: &vt100::Screen,
-    osc_title: &str,
-    quiet_for: Duration,
+    fresh_osc_title: Option<&str>,
+    observation: AgentObservation,
 ) -> AgentState {
     let live = screen_tail(screen, 12).to_ascii_lowercase();
-    let title = osc_title.trim();
+    let title = fresh_osc_title.unwrap_or_default().trim();
     let lower_title = title.to_ascii_lowercase();
 
-    if contains_any(
-        &live,
+    // Tab keeps OSC signals only for a bounded freshness window. Strong recent
+    // signals are safe even while a local redraw is guarded.
+    if is_action_required_title(&lower_title) {
+        return AgentState::Blocked;
+    }
+    if title.trim_start().chars().next().is_some_and(is_spinner) {
+        return AgentState::Working;
+    }
+    if kind == AgentKind::Claude && title.starts_with('✳') {
+        return AgentState::Ready;
+    }
+
+    match observation.interaction {
+        // set_size() changes wrapping before the child finishes repainting.
+        // Reading that intermediate frame can expose a stale Working line.
+        AgentInteraction::Resizing => return observation.previous,
+        // Editing a queued follow-up must not stop a genuinely working agent;
+        // editing an idle composer likewise cannot start one.
+        AgentInteraction::Editing => return observation.previous,
+        AgentInteraction::None | AgentInteraction::SubmitPending | AgentInteraction::Submitted => {}
+    }
+
+    // Only the six live footer rows can contain status. If a composer begins
+    // anywhere in the twelve-row tail, its wrapped continuation is user text
+    // and cannot become a status just because it contains marker words.
+    let lines: Vec<_> = live
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+    let prompt_index = lines.iter().rposition(|line| is_ready_line(line));
+    let recent_start = lines.len().saturating_sub(6);
+    let mut saw_ready = false;
+    let mut saw_working = false;
+    let mut saw_blocked = false;
+    for (index, line) in lines.iter().enumerate().skip(recent_start) {
+        let state = if prompt_index.is_some_and(|prompt| index >= prompt) {
+            Some(AgentState::Ready)
+        } else {
+            state_from_status_line(kind, line)
+        };
+        let Some(state) = state else {
+            continue;
+        };
+        match state {
+            AgentState::Ready => saw_ready = true,
+            AgentState::Working => saw_working = true,
+            AgentState::Blocked => saw_blocked = true,
+        }
+    }
+    let activity_is_recent = observation.quiet_for <= ACTIVITY_WINDOW;
+    // Codex can keep its composer visible while a separate status row reports
+    // active work. Require a live transition/activity to distinguish it from
+    // an old status exposed above a newly idle prompt.
+    let screen_state = if saw_blocked {
+        Some(AgentState::Blocked)
+    } else if saw_working
+        && (!saw_ready
+            || observation.interaction == AgentInteraction::Submitted
+            || (observation.previous == AgentState::Working && activity_is_recent))
+    {
+        Some(AgentState::Working)
+    } else if saw_ready {
+        Some(AgentState::Ready)
+    } else {
+        None
+    };
+
+    if observation.interaction == AgentInteraction::SubmitPending {
+        return screen_state.unwrap_or(observation.previous);
+    }
+    if observation.interaction == AgentInteraction::Submitted {
+        // Enter alone is not enough: AgentActivity reports Submitted only once
+        // child output arrived. A still-visible composer wins (e.g. empty
+        // Enter); otherwise the accepted prompt starts the working lifecycle.
+        return screen_state.unwrap_or(AgentState::Working);
+    }
+    if let Some(state) = screen_state {
+        return state;
+    }
+
+    let explicit_state_agent = matches!(
+        kind,
+        AgentKind::Codex | AgentKind::Claude | AgentKind::OpenCode
+    );
+    if activity_is_recent && (!explicit_state_agent || observation.previous == AgentState::Working)
+    {
+        AgentState::Working
+    } else {
+        AgentState::Ready
+    }
+}
+
+fn is_ready_line(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    let anchored = trimmed.trim_start_matches(|ch: char| !ch.is_alphanumeric());
+    matches!(trimmed.chars().next(), Some('›' | '❯'))
+        || starts_with_any(anchored, &["ask anything", "type a message"])
+}
+
+fn state_from_status_line(kind: AgentKind, line: &str) -> Option<AgentState> {
+    let trimmed = line.trim();
+    let anchored = trimmed.trim_start_matches(|ch: char| !ch.is_alphanumeric());
+    if starts_with_any(
+        anchored,
         &[
             "allow command?",
             "permission required",
@@ -254,53 +376,32 @@ pub fn detect_state(
             "do you want to allow",
             "review your answers",
         ],
-    ) || lower_title.contains("action required")
-    {
-        return AgentState::Blocked;
+    ) {
+        return Some(AgentState::Blocked);
     }
 
-    let recent_lines = live
-        .lines()
-        .rev()
-        .filter(|line| !line.trim().is_empty())
-        .take(4)
-        .collect::<Vec<_>>()
-        .join("\n");
-    if contains_any(
-        &recent_lines,
+    let codex_status = anchored.starts_with("working (") && anchored.contains("interrupt");
+    let interrupt_footer = starts_with_any(
+        anchored,
         &[
             "esc to interrupt",
             "ctrl+c to interrupt",
             "press esc to interrupt",
-            "working (",
         ],
-    ) || title.trim_start().chars().next().is_some_and(is_spinner)
-    {
-        return AgentState::Working;
+    );
+    let opencode_status = kind == AgentKind::OpenCode
+        && anchored.starts_with("build")
+        && anchored.contains("esc interrupt")
+        && contains_any(anchored, &["■", "⬝", "[⋯]"]);
+    if codex_status || interrupt_footer || opencode_status {
+        return Some(AgentState::Working);
     }
 
-    let visible_prompt = live
-        .lines()
-        .rev()
-        .take(4)
-        .any(|line| matches!(line.trim_start().chars().next(), Some('›' | '❯')));
-    let title_reports_idle = match kind {
-        AgentKind::Codex => !title.is_empty(),
-        AgentKind::Claude => title.starts_with('✳'),
-        _ => false,
-    };
-    if visible_prompt
-        || title_reports_idle
-        || contains_any(&live, &["ask anything", "type a message"])
-    {
-        return AgentState::Ready;
-    }
+    None
+}
 
-    if quiet_for <= ACTIVITY_WINDOW {
-        AgentState::Working
-    } else {
-        AgentState::Ready
-    }
+fn is_action_required_title(title: &str) -> bool {
+    title.trim_matches(|ch: char| !ch.is_alphanumeric()) == "action required"
 }
 
 fn screen_tail(screen: &vt100::Screen, max_rows: usize) -> String {
@@ -320,6 +421,10 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| haystack.contains(needle))
 }
 
+fn starts_with_any(haystack: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| haystack.starts_with(needle))
+}
+
 fn is_spinner(ch: char) -> bool {
     ('\u{2801}'..='\u{28ff}').contains(&ch)
 }
@@ -336,6 +441,43 @@ mod tests {
 
     fn argv(values: &[&str]) -> Vec<String> {
         values.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    fn detect(
+        kind: AgentKind,
+        parser: &vt100::Parser,
+        title: &str,
+        previous: AgentState,
+        quiet_for: Duration,
+    ) -> AgentState {
+        detect_with_interaction(
+            kind,
+            parser,
+            title,
+            previous,
+            quiet_for,
+            AgentInteraction::None,
+        )
+    }
+
+    fn detect_with_interaction(
+        kind: AgentKind,
+        parser: &vt100::Parser,
+        title: &str,
+        previous: AgentState,
+        quiet_for: Duration,
+        interaction: AgentInteraction,
+    ) -> AgentState {
+        detect_state(
+            kind,
+            parser.screen(),
+            (!title.is_empty()).then_some(title),
+            AgentObservation {
+                previous,
+                quiet_for,
+                interaction,
+            },
+        )
     }
 
     #[test]
@@ -378,30 +520,33 @@ mod tests {
     fn visible_agent_signals_override_recent_activity() {
         let blocked = parser_with("Allow command?\nPress Enter to confirm");
         assert_eq!(
-            detect_state(
+            detect(
                 AgentKind::Codex,
-                blocked.screen(),
+                &blocked,
                 "Action Required",
+                AgentState::Ready,
                 Duration::ZERO,
             ),
             AgentState::Blocked
         );
         let working = parser_with("• Working (esc to interrupt)");
         assert_eq!(
-            detect_state(
+            detect(
                 AgentKind::Codex,
-                working.screen(),
+                &working,
                 "⠋ Codex",
+                AgentState::Ready,
                 Duration::from_secs(5),
             ),
             AgentState::Working
         );
         let ready = parser_with("────────────────\n❯ ");
         assert_eq!(
-            detect_state(
+            detect(
                 AgentKind::Claude,
-                ready.screen(),
+                &ready,
                 "✳ Claude",
+                AgentState::Working,
                 Duration::ZERO,
             ),
             AgentState::Ready
@@ -409,23 +554,236 @@ mod tests {
     }
 
     #[test]
-    fn activity_falls_back_to_ready_after_a_quiet_window() {
-        let blank = parser_with("");
+    fn structured_working_row_outweighs_a_visible_composer() {
+        let working_with_composer =
+            parser_with("• Working (esc to interrupt)\n› editing a follow-up");
         assert_eq!(
-            detect_state(
-                AgentKind::Gemini,
-                blank.screen(),
+            detect(
+                AgentKind::Codex,
+                &working_with_composer,
                 "",
-                Duration::from_millis(200)
+                AgentState::Working,
+                Duration::ZERO,
             ),
             AgentState::Working
         );
         assert_eq!(
-            detect_state(
-                AgentKind::Gemini,
-                blank.screen(),
+            detect(
+                AgentKind::Codex,
+                &working_with_composer,
                 "",
-                Duration::from_secs(2)
+                AgentState::Ready,
+                Duration::MAX,
+            ),
+            AgentState::Ready
+        );
+
+        let prompt_keywords =
+            parser_with("› explain esc to interrupt, working ( and permission required");
+        assert_eq!(
+            detect(
+                AgentKind::Codex,
+                &prompt_keywords,
+                "",
+                AgentState::Ready,
+                Duration::ZERO,
+            ),
+            AgentState::Ready
+        );
+
+        let mut rows = vec!["• Working (esc to interrupt)".to_string()];
+        rows.extend((0..7).map(|index| format!("completed row {index}")));
+        let stale = parser_with(&rows.join("\n"));
+        assert_eq!(
+            detect(
+                AgentKind::Codex,
+                &stale,
+                "",
+                AgentState::Working,
+                Duration::MAX,
+            ),
+            AgentState::Ready
+        );
+    }
+
+    #[test]
+    fn project_title_words_do_not_become_an_action_required_signal() {
+        let blank = parser_with("");
+        assert_eq!(
+            detect(
+                AgentKind::Codex,
+                &blank,
+                "fix action required detector",
+                AgentState::Ready,
+                Duration::MAX,
+            ),
+            AgentState::Ready
+        );
+        assert_eq!(
+            detect(
+                AgentKind::Codex,
+                &blank,
+                "[!] Action Required",
+                AgentState::Ready,
+                Duration::MAX,
+            ),
+            AgentState::Blocked
+        );
+    }
+
+    #[test]
+    fn opencode_interrupt_footer_is_working() {
+        let parser = parser_with("BUILD  ■⬝⬝  esc interrupt");
+        assert_eq!(
+            detect(
+                AgentKind::OpenCode,
+                &parser,
+                "",
+                AgentState::Ready,
+                Duration::MAX,
+            ),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn live_spinner_remains_authoritative_while_composer_is_visible() {
+        let parser = parser_with("› queued follow-up");
+        assert_eq!(
+            detect(
+                AgentKind::Codex,
+                &parser,
+                "⠋ Codex",
+                AgentState::Ready,
+                Duration::MAX,
+            ),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn activity_falls_back_to_ready_after_a_quiet_window() {
+        let blank = parser_with("");
+        assert_eq!(
+            detect(
+                AgentKind::Gemini,
+                &blank,
+                "",
+                AgentState::Ready,
+                Duration::from_millis(200),
+            ),
+            AgentState::Working
+        );
+        assert_eq!(
+            detect(
+                AgentKind::Gemini,
+                &blank,
+                "",
+                AgentState::Working,
+                Duration::from_secs(2),
+            ),
+            AgentState::Ready
+        );
+    }
+
+    #[test]
+    fn generic_activity_cannot_promote_explicit_state_agents() {
+        let blank = parser_with("");
+        for kind in [AgentKind::Codex, AgentKind::Claude, AgentKind::OpenCode] {
+            assert_eq!(
+                detect(kind, &blank, "", AgentState::Ready, Duration::ZERO),
+                AgentState::Ready
+            );
+            assert_eq!(
+                detect(kind, &blank, "", AgentState::Working, Duration::ZERO),
+                AgentState::Working
+            );
+            assert_eq!(
+                detect(
+                    kind,
+                    &blank,
+                    "",
+                    AgentState::Working,
+                    Duration::from_secs(2),
+                ),
+                AgentState::Ready
+            );
+        }
+    }
+
+    #[test]
+    fn local_interactions_reduce_without_reading_partial_redraws() {
+        let stale_working = parser_with("• Working (esc to interrupt)");
+        assert_eq!(
+            detect_with_interaction(
+                AgentKind::Codex,
+                &stale_working,
+                "",
+                AgentState::Ready,
+                Duration::ZERO,
+                AgentInteraction::Editing,
+            ),
+            AgentState::Ready
+        );
+        assert_eq!(
+            detect_with_interaction(
+                AgentKind::Codex,
+                &stale_working,
+                "",
+                AgentState::Ready,
+                Duration::ZERO,
+                AgentInteraction::Resizing,
+            ),
+            AgentState::Ready
+        );
+        assert_eq!(
+            detect_with_interaction(
+                AgentKind::Codex,
+                &stale_working,
+                "",
+                AgentState::Working,
+                Duration::MAX,
+                AgentInteraction::Resizing,
+            ),
+            AgentState::Working
+        );
+    }
+
+    #[test]
+    fn acknowledged_submit_promotes_only_after_the_composer_disappears() {
+        let blank = parser_with("");
+        assert_eq!(
+            detect_with_interaction(
+                AgentKind::OpenCode,
+                &blank,
+                "",
+                AgentState::Ready,
+                Duration::MAX,
+                AgentInteraction::SubmitPending,
+            ),
+            AgentState::Ready
+        );
+        assert_eq!(
+            detect_with_interaction(
+                AgentKind::OpenCode,
+                &blank,
+                "",
+                AgentState::Ready,
+                Duration::ZERO,
+                AgentInteraction::Submitted,
+            ),
+            AgentState::Working
+        );
+
+        let prompt = parser_with("› explain esc to interrupt and permission required");
+        assert_eq!(
+            detect_with_interaction(
+                AgentKind::Codex,
+                &prompt,
+                "",
+                AgentState::Ready,
+                Duration::ZERO,
+                AgentInteraction::Submitted,
             ),
             AgentState::Ready
         );
@@ -438,11 +796,12 @@ mod tests {
         rows.push("❯ ".to_string());
         let parser = parser_with(&rows.join("\n"));
         assert_eq!(
-            detect_state(
+            detect(
                 AgentKind::Claude,
-                parser.screen(),
+                &parser,
                 "✳ Claude",
-                Duration::ZERO
+                AgentState::Blocked,
+                Duration::ZERO,
             ),
             AgentState::Ready
         );

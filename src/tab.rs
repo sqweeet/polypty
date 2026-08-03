@@ -1,3 +1,5 @@
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError, TrySendError};
@@ -10,6 +12,10 @@ use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize}
 
 use crate::agent::{self, AgentKind, AgentState, AgentStatus};
 use crate::info::{self, OscTracker, TabInfo};
+
+mod activity;
+
+use activity::AgentActivity;
 
 const PTY_READ_CHUNK_BYTES: usize = 8 * 1024;
 const PTY_QUEUE_CHUNKS: usize = 32;
@@ -213,8 +219,9 @@ pub struct Tab {
     last_probe: Instant,
     agent_kind: Option<AgentKind>,
     agent_state: Option<AgentState>,
-    agent_title_revision: u64,
-    last_output_at: Option<Instant>,
+    osc_title_updated_at: Option<Instant>,
+    agent_activity: AgentActivity,
+    agent_screen_signature: Option<u64>,
     last_agent_scan: Instant,
     cols: u16,
     rows: u16,
@@ -324,8 +331,9 @@ impl Tab {
             last_probe: Instant::now() - Duration::from_secs(10),
             agent_kind: None,
             agent_state: None,
-            agent_title_revision: 0,
-            last_output_at: None,
+            osc_title_updated_at: None,
+            agent_activity: AgentActivity::default(),
+            agent_screen_signature: None,
             last_agent_scan: Instant::now() - Duration::from_secs(10),
             cols,
             rows,
@@ -353,6 +361,10 @@ impl Tab {
             })
             .context("pty resize")?;
         self.parser.screen_mut().set_size(rows, cols);
+        self.agent_activity.note_resize(Instant::now());
+        self.agent_screen_signature = self
+            .agent_kind
+            .map(|_| agent_screen_signature(self.parser.screen()));
         self.cols = cols;
         self.rows = rows;
         self.dirty = true;
@@ -362,6 +374,7 @@ impl Tab {
     /// Drain pending PTY output into the VT parser. Returns true if anything changed.
     pub fn poll(&mut self) -> Result<bool> {
         let now = Instant::now();
+        let title_revision_before = self.osc.title_revision();
         let mut changed = false;
         self.last_poll_bytes = 0;
         let outcome = drain_output(
@@ -374,6 +387,9 @@ impl Tab {
             },
         );
         self.last_poll_bytes = outcome.bytes;
+        if self.osc.title_revision() > title_revision_before {
+            self.osc_title_updated_at = Some(now);
+        }
 
         let responses = self.parser.callbacks_mut().take_responses();
         if !responses.is_empty() {
@@ -381,7 +397,15 @@ impl Tab {
         }
 
         if outcome.bytes > 0 {
-            self.last_output_at = Some(now);
+            let current_signature = self
+                .agent_kind
+                .map(|_| agent_screen_signature(self.parser.screen()));
+            let screen_changed = self
+                .agent_screen_signature
+                .zip(current_signature)
+                .is_some_and(|(before, after)| before != after);
+            self.agent_screen_signature = current_signature;
+            self.agent_activity.note_output(now, screen_changed);
             changed = true;
             self.dirty = true;
 
@@ -468,24 +492,21 @@ impl Tab {
         if next_kind != self.agent_kind {
             self.agent_kind = next_kind;
             self.agent_state = next_kind.map(|_| AgentState::Ready);
-            // Ignore a title emitted by the previous foreground job. A newly
-            // detected agent must publish another OSC title before it is used.
-            self.agent_title_revision = self.osc.title_revision();
+            reset_agent_evidence(
+                &mut self.agent_activity,
+                &mut self.osc_title_updated_at,
+                &mut self.agent_screen_signature,
+                next_kind.map(|_| agent_screen_signature(self.parser.screen())),
+            );
             self.recompose();
             return true;
         }
 
         let next_state = next_kind.map(|kind| {
-            let title = if self.osc.title_revision() > self.agent_title_revision {
-                self.osc.title.as_deref().unwrap_or_default()
-            } else {
-                ""
-            };
-            let quiet_for = self
-                .last_output_at
-                .map(|last| now.saturating_duration_since(last))
-                .unwrap_or(Duration::MAX);
-            agent::detect_state(kind, self.parser.screen(), title, quiet_for)
+            let title = recent_osc_title(self.osc.title.as_deref(), self.osc_title_updated_at, now);
+            let previous = self.agent_state.unwrap_or(AgentState::Ready);
+            let observation = self.agent_activity.observation(previous, now);
+            agent::detect_state(kind, self.parser.screen(), title, observation)
         });
         if next_state == self.agent_state {
             return false;
@@ -521,7 +542,7 @@ impl Tab {
             return Ok(());
         }
         match self.input_tx.try_send(PtyInput::User(data.to_vec())) {
-            Ok(()) => {}
+            Ok(()) => self.agent_activity.note_input(data, Instant::now()),
             // Keep the event loop responsive under pathological stdin
             // backpressure. The queue already retains the previous 256 input
             // events in order; only the newest event is shed at the hard cap.
@@ -581,6 +602,45 @@ impl Tab {
         let _ = self.child.kill();
         self.alive = false;
     }
+}
+
+fn recent_osc_title(
+    title: Option<&str>,
+    updated_at: Option<Instant>,
+    now: Instant,
+) -> Option<&str> {
+    updated_at
+        .filter(|updated| now.saturating_duration_since(*updated) <= agent::ACTIVITY_WINDOW)
+        .and(title)
+}
+
+fn reset_agent_evidence(
+    activity: &mut AgentActivity,
+    osc_title_updated_at: &mut Option<Instant>,
+    screen_signature: &mut Option<u64>,
+    next_screen_signature: Option<u64>,
+) {
+    activity.reset();
+    *osc_title_updated_at = None;
+    *screen_signature = next_screen_signature;
+}
+
+/// Hash only emulated cell contents. Control sequences, cursor blinking and
+/// identical repaint bytes deliberately leave this signature unchanged.
+fn agent_screen_signature(screen: &vt100::Screen) -> u64 {
+    let (rows, cols) = screen.size();
+    let mut hash = DefaultHasher::new();
+    rows.hash(&mut hash);
+    cols.hash(&mut hash);
+    for row in 0..rows {
+        row.hash(&mut hash);
+        for col in 0..cols {
+            if let Some(cell) = screen.cell(row, col) {
+                cell.contents().hash(&mut hash);
+            }
+        }
+    }
+    hash.finish()
 }
 
 fn default_shell() -> String {
@@ -742,6 +802,60 @@ mod tests {
             child_terminal_environment(),
             [("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]
         );
+    }
+
+    #[test]
+    fn osc_agent_title_has_a_bounded_freshness_window() {
+        let start = Instant::now();
+        assert_eq!(
+            recent_osc_title(Some("⠋ Codex"), Some(start), start + agent::ACTIVITY_WINDOW),
+            Some("⠋ Codex")
+        );
+        assert_eq!(
+            recent_osc_title(
+                Some("⠋ Codex"),
+                Some(start),
+                start + agent::ACTIVITY_WINDOW + Duration::from_millis(1),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn foreground_change_drops_previous_agent_evidence() {
+        let start = Instant::now();
+        let mut activity = AgentActivity::default();
+        activity.note_output(start, true);
+        let mut title_updated_at = Some(start);
+        let mut signature = Some(11);
+
+        reset_agent_evidence(
+            &mut activity,
+            &mut title_updated_at,
+            &mut signature,
+            Some(22),
+        );
+
+        assert_eq!(title_updated_at, None);
+        assert_eq!(signature, Some(22));
+        assert_eq!(
+            activity
+                .observation(AgentState::Ready, start + Duration::from_millis(1))
+                .quiet_for,
+            Duration::MAX
+        );
+    }
+
+    #[test]
+    fn agent_screen_signature_ignores_control_only_output() {
+        let mut parser = vt100::Parser::new(4, 10, 0);
+        let empty = agent_screen_signature(parser.screen());
+
+        parser.process(b"\x1b]0;Codex\x07\x1b[?25l\x1b[?25h");
+        assert_eq!(agent_screen_signature(parser.screen()), empty);
+
+        parser.process(b"working");
+        assert_ne!(agent_screen_signature(parser.screen()), empty);
     }
 
     #[test]
