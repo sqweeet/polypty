@@ -257,3 +257,37 @@
 - A live tmux smoke created two real split panes, launched Codex-shaped working
   processes in both, rendered `codex ×2`, and verified neutral glint spans on
   both card rows. Independent audit reported no findings.
+
+## 2026-08-03 — Round 10: subsystem split and causal agent activity
+
+### Implemented
+
+- Split the former monolithic render, app, metadata, and workspace code into
+  responsibility-owned modules: sidebar/terminal rendering, draw/interaction,
+  OSC/process probes, split-tree layout, sidebar animation, and PTY activity.
+- Replaced the shared glint clock with an immutable workspace identity and a
+  per-card `Working` epoch. Later agent starts now receive a genuinely different
+  phase; focus, split changes, metadata refreshes, and resize preserve it.
+- Refined the neutral two-row sweep into an approximately four-second pass plus
+  a collapsed two-second rest. Invisible, offscreen, narrow, and visually empty
+  frames do not keep the redraw loop active.
+- Replaced raw “recent PTY bytes = work” logic with causal evidence. Editing,
+  empty Enter, bracketed paste, control-only output, and SIGWINCH redraws cannot
+  promote an idle Codex/Claude/OpenCode card. A non-empty submit, anchored live
+  status, bounded fresh OSC signal, or qualified activity drives transitions.
+- Scoped footer markers away from wrapped composer text, kept working state
+  while a follow-up is edited, and reset screen/activity/title evidence whenever
+  the foreground agent changes.
+
+### Evidence
+
+- `cargo test --locked --all-features`: 93 passed, 0 failed; strict clippy,
+  rustfmt, `git diff --check`, and locked release build pass.
+- Live Codex 0.146.0 smoke verified that marker words typed into the composer,
+  empty Enter, and repeated sidebar resize remain `ready`; `!sleep 3` starts the
+  glint, keeps it through resize, and returns to the compact `✓` afterward.
+- A two-workspace PTY smoke started Codex-shaped workers at different times and
+  captured different neutral highlight positions while both rows of each card
+  shared one phase.
+- Independent detector, animation, and architecture audits found no remaining
+  blocker after the cross-process OSC and erased-draft regressions were fixed.
