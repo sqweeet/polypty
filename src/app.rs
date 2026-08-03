@@ -873,7 +873,15 @@ fn sidebar_fingerprint(tabs: &[SidebarTab], visible: bool, width: u16, rows: u16
             tab.primary,
             tab.secondary,
             tab.agent
-                .map(|status| format!("{}:{}", status.kind.label(), status.state.label()))
+                .map(|status| {
+                    format!(
+                        "{}:{}:{}:{}",
+                        status.kind.label(),
+                        status.state.label(),
+                        status.panes,
+                        status.mixed_kinds as u8
+                    )
+                })
                 .unwrap_or_default(),
             tab.active as u8
         ));
@@ -948,17 +956,20 @@ mod tests {
         let mut tabs = vec![SidebarTab {
             primary: "codex".into(),
             secondary: "~/projects/mux".into(),
-            agent: Some(crate::agent::AgentStatus {
-                kind: crate::agent::AgentKind::Codex,
-                state: crate::agent::AgentState::Working,
-            }),
+            agent: Some(crate::agent::AgentStatus::single(
+                crate::agent::AgentKind::Codex,
+                crate::agent::AgentState::Working,
+            )),
             active: true,
         }];
         let working = sidebar_fingerprint(&tabs, true, 18, 24);
         tabs[0].agent.as_mut().unwrap().state = crate::agent::AgentState::Blocked;
         let blocked = sidebar_fingerprint(&tabs, true, 18, 24);
+        tabs[0].agent.as_mut().unwrap().panes = 2;
+        let split = sidebar_fingerprint(&tabs, true, 18, 24);
 
         assert_ne!(working, blocked);
+        assert_ne!(blocked, split);
     }
 
     #[test]

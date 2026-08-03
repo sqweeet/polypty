@@ -76,17 +76,51 @@ impl AgentState {
 pub struct AgentStatus {
     pub kind: AgentKind,
     pub state: AgentState,
+    /// Number of agent panes represented by this workspace status.
+    pub panes: usize,
+    /// At least one represented pane is running a different agent kind.
+    pub mixed_kinds: bool,
+}
+
+impl AgentStatus {
+    pub const fn single(kind: AgentKind, state: AgentState) -> Self {
+        Self {
+            kind,
+            state,
+            panes: 1,
+            mixed_kinds: false,
+        }
+    }
 }
 
 /// Roll pane statuses up without allowing an equal-priority background pane
 /// to replace the first (normally active) pane.
 pub fn rollup(statuses: impl IntoIterator<Item = AgentStatus>) -> Option<AgentStatus> {
-    statuses
-        .into_iter()
-        .fold(None, |current, next| match current {
+    let mut selected: Option<AgentStatus> = None;
+    let mut first_kind = None;
+    let mut panes = 0usize;
+    let mut mixed_kinds = false;
+
+    for next in statuses {
+        panes = panes.saturating_add(next.panes.max(1));
+        mixed_kinds |= next.mixed_kinds;
+        if let Some(first_kind) = first_kind {
+            mixed_kinds |= first_kind != next.kind;
+        } else {
+            first_kind = Some(next.kind);
+        }
+
+        selected = match selected {
             Some(current) if current.state.priority() >= next.state.priority() => Some(current),
             _ => Some(next),
-        })
+        };
+    }
+
+    selected.map(|mut status| {
+        status.panes = panes;
+        status.mixed_kinds = mixed_kinds;
+        status
+    })
 }
 
 pub fn identify_name(value: &str) -> Option<AgentKind> {
@@ -415,24 +449,34 @@ mod tests {
     }
 
     #[test]
-    fn rollup_prefers_urgent_state_and_preserves_first_tie() {
-        let codex_working = AgentStatus {
-            kind: AgentKind::Codex,
-            state: AgentState::Working,
-        };
-        let claude_working = AgentStatus {
-            kind: AgentKind::Claude,
-            state: AgentState::Working,
-        };
-        let opencode_blocked = AgentStatus {
-            kind: AgentKind::OpenCode,
-            state: AgentState::Blocked,
-        };
+    fn rollup_counts_panes_and_preserves_priority_and_first_tie() {
+        let codex_working = AgentStatus::single(AgentKind::Codex, AgentState::Working);
+        let codex_ready = AgentStatus::single(AgentKind::Codex, AgentState::Ready);
+        let claude_working = AgentStatus::single(AgentKind::Claude, AgentState::Working);
+        let opencode_blocked = AgentStatus::single(AgentKind::OpenCode, AgentState::Blocked);
 
-        assert_eq!(rollup([codex_working, claude_working]), Some(codex_working));
+        assert_eq!(
+            rollup([codex_working, codex_ready]),
+            Some(AgentStatus {
+                panes: 2,
+                ..codex_working
+            })
+        );
+        assert_eq!(
+            rollup([codex_working, claude_working]),
+            Some(AgentStatus {
+                panes: 2,
+                mixed_kinds: true,
+                ..codex_working
+            })
+        );
         assert_eq!(
             rollup([codex_working, opencode_blocked]),
-            Some(opencode_blocked)
+            Some(AgentStatus {
+                panes: 2,
+                mixed_kinds: true,
+                ..opencode_blocked
+            })
         );
     }
 }

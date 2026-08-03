@@ -509,7 +509,7 @@ impl Tab {
         info.agent = self
             .agent_kind
             .zip(self.agent_state)
-            .map(|(kind, state)| AgentStatus { kind, state });
+            .map(|(kind, state)| AgentStatus::single(kind, state));
         self.info = info;
     }
 

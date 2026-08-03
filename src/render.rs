@@ -425,6 +425,41 @@ struct SidebarContentRow {
     text: String,
 }
 
+fn agent_primary_label(status: AgentStatus, width: usize) -> String {
+    let count = status.panes.max(1);
+    let mut identity = status.kind.label().to_string();
+    if count > 1 {
+        let suffix = if status.mixed_kinds {
+            format!("+{}", count - 1)
+        } else {
+            format!(" ×{count}")
+        };
+        identity.push_str(&suffix);
+    }
+
+    if status.state != AgentState::Blocked {
+        return identity;
+    }
+
+    const BLOCKED: &str = "blocked";
+    const BLOCKED_SUFFIX: &str = " · blocked";
+    let blocked_width = UnicodeWidthStr::width(BLOCKED);
+    let suffix_width = UnicodeWidthStr::width(BLOCKED_SUFFIX);
+    if width < blocked_width {
+        return "!".to_string();
+    }
+    if width <= suffix_width {
+        return BLOCKED.to_string();
+    }
+
+    let identity_width = width - suffix_width;
+    let identity = wrap_text(&identity, identity_width, 1)
+        .into_iter()
+        .next()
+        .unwrap_or_default();
+    format!("{identity}{BLOCKED_SUFFIX}")
+}
+
 fn build_cards(tabs: &[SidebarTab], inner_w: usize) -> Vec<TabCard> {
     let mut cards = Vec::with_capacity(tabs.len());
     let text_w = inner_w.max(1);
@@ -438,13 +473,7 @@ fn build_cards(tabs: &[SidebarTab], inner_w: usize) -> Vec<TabCard> {
                 AgentState::Working => 7,
                 AgentState::Blocked => 8,
             };
-            let primary = match status.state {
-                AgentState::Working | AgentState::Ready => status.kind.label().to_string(),
-                AgentState::Blocked => {
-                    format!("{} · {}", status.kind.label(), status.state.label())
-                }
-            };
-            (kind, primary)
+            (kind, agent_primary_label(status, text_w))
         } else if tab.primary.is_empty() {
             (2, "shell".to_string())
         } else {
@@ -554,9 +583,9 @@ fn working_glint_bg(active: bool, step: u64, column: usize, width: usize) -> Col
     let distance = (column - center).unsigned_abs() as usize;
     let weight = WEIGHT.get(distance).copied().unwrap_or(0);
     let (base, target) = if active {
-        ((48, 48, 48), (56, 64, 77))
+        ((48, 48, 48), (80, 80, 80))
     } else {
-        ((36, 36, 36), (44, 51, 62))
+        ((36, 36, 36), (64, 64, 64))
     };
 
     fn blend(base: u8, target: u8, weight: u16) -> u8 {
@@ -1689,10 +1718,10 @@ mod tests {
         let mut tabs = [SidebarTab {
             primary: "node".into(),
             secondary: "~/projects/mux".into(),
-            agent: Some(AgentStatus {
-                kind: crate::agent::AgentKind::Codex,
-                state: AgentState::Working,
-            }),
+            agent: Some(AgentStatus::single(
+                crate::agent::AgentKind::Codex,
+                AgentState::Working,
+            )),
             active: true,
         }];
 
@@ -1711,15 +1740,57 @@ mod tests {
     }
 
     #[test]
-    fn working_glint_covers_both_rows_of_the_card() {
-        let layout = Layout::new(40, 12, true, 18);
-        let tabs = [SidebarTab {
+    fn agent_status_labels_split_panes_compactly() {
+        let mut tabs = [SidebarTab {
             primary: "node".into(),
             secondary: "~/projects/mux".into(),
             agent: Some(AgentStatus {
                 kind: crate::agent::AgentKind::Codex,
                 state: AgentState::Working,
+                panes: 2,
+                mixed_kinds: false,
             }),
+            active: true,
+        }];
+
+        assert_eq!(build_cards(&tabs, 18)[0].lines[0], (7, "codex ×2".into()));
+        tabs[0].agent.as_mut().unwrap().state = AgentState::Ready;
+        assert_eq!(build_cards(&tabs, 18)[0].lines[0], (6, "codex ×2".into()));
+        tabs[0].agent.as_mut().unwrap().state = AgentState::Blocked;
+        assert_eq!(
+            build_cards(&tabs, 18)[0].lines[0],
+            (8, "codex ×2 · blocked".into())
+        );
+
+        let status = tabs[0].agent.as_mut().unwrap();
+        status.kind = crate::agent::AgentKind::Claude;
+        status.state = AgentState::Working;
+        status.mixed_kinds = true;
+        assert_eq!(build_cards(&tabs, 18)[0].lines[0], (7, "claude+1".into()));
+
+        tabs[0].agent.as_mut().unwrap().state = AgentState::Blocked;
+        assert_eq!(
+            build_cards(&tabs, 18)[0].lines[0],
+            (8, "claude+1 · blocked".into())
+        );
+        assert_eq!(
+            build_cards(&tabs, 12)[0].lines[0],
+            (8, "c… · blocked".into())
+        );
+        assert_eq!(build_cards(&tabs, 8)[0].lines[0], (8, "blocked".into()));
+        assert_eq!(build_cards(&tabs, 5)[0].lines[0], (8, "!".into()));
+    }
+
+    #[test]
+    fn working_glint_covers_both_rows_of_the_card() {
+        let layout = Layout::new(40, 12, true, 18);
+        let tabs = [SidebarTab {
+            primary: "node".into(),
+            secondary: "~/projects/mux".into(),
+            agent: Some(AgentStatus::single(
+                crate::agent::AgentKind::Codex,
+                AgentState::Working,
+            )),
             active: true,
         }];
         let mut out = Vec::new();
@@ -1755,7 +1826,8 @@ mod tests {
             }
         }
 
-        assert_eq!(rgb(working_glint_bg(true, 18, 5, 18)), (56, 64, 77));
+        assert_eq!(rgb(working_glint_bg(true, 18, 5, 18)), (80, 80, 80));
+        assert_eq!(rgb(working_glint_bg(false, 18, 5, 18)), (64, 64, 64));
         assert_eq!(rgb(working_glint_bg(true, 0, 17, 18)), (48, 48, 48));
 
         for active in [false, true] {
@@ -1825,10 +1897,10 @@ mod tests {
             .map(|index| SidebarTab {
                 primary: format!("tab-{index}"),
                 secondary: String::new(),
-                agent: (index == 0).then_some(AgentStatus {
-                    kind: crate::agent::AgentKind::Codex,
-                    state: AgentState::Working,
-                }),
+                agent: (index == 0).then_some(AgentStatus::single(
+                    crate::agent::AgentKind::Codex,
+                    AgentState::Working,
+                )),
                 active: index == 6,
             })
             .collect();
