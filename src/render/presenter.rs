@@ -5,18 +5,30 @@ use anyhow::Result;
 use crate::{agent::AgentState, workspace::snapshot::WorkspaceSnapshot};
 
 use super::{
-    sidebar::{SidebarPresentation, SidebarTab},
+    sidebar::{SidebarPresentation, SidebarShortcuts, SidebarTab},
     workspace::{self, WorkspaceRenderer},
     GlintFrame, Layout,
 };
 
-#[derive(Default)]
 pub(crate) struct Presenter {
     sidebar: SidebarPresentation,
     workspaces: BTreeMap<u64, WorkspaceRenderer>,
 }
 
+impl Default for Presenter {
+    fn default() -> Self {
+        Self::new(SidebarShortcuts::default())
+    }
+}
+
 impl Presenter {
+    pub(crate) fn new(shortcuts: SidebarShortcuts) -> Self {
+        Self {
+            sidebar: SidebarPresentation::new(shortcuts),
+            workspaces: BTreeMap::new(),
+        }
+    }
+
     pub(crate) fn invalidate_sidebar(&mut self) {
         self.sidebar.invalidate();
     }

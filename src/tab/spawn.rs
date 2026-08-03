@@ -8,8 +8,8 @@ use super::{
 };
 
 impl Tab {
-    pub fn spawn(id: u64, cols: u16, rows: u16) -> Result<Self> {
-        let transport = PtyTransport::spawn(id, cols, rows)?;
+    pub fn spawn(id: u64, cols: u16, rows: u16, shell: Option<&str>) -> Result<Self> {
+        let transport = PtyTransport::spawn(id, cols, rows, shell)?;
         let now = Instant::now();
         let mut tab = Self {
             id,

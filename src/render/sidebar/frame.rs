@@ -2,7 +2,7 @@ use crate::render::Layout;
 
 use super::cache::SidebarPaintRow;
 use super::card::build_cards;
-use super::footer::sidebar_footer;
+use super::footer::{configured_footer, SidebarShortcuts};
 use super::hit_map::SidebarMap;
 use super::model::{SidebarContentRow, SidebarTab};
 use super::palette::SidebarPalette;
@@ -13,11 +13,15 @@ pub(super) struct SidebarFrame {
     pub(super) rows: Vec<SidebarPaintRow>,
 }
 
-pub(super) fn build_sidebar_frame(layout: &Layout, tabs: &[SidebarTab]) -> SidebarFrame {
+pub(super) fn build_sidebar_frame(
+    layout: &Layout,
+    tabs: &[SidebarTab],
+    shortcuts: &SidebarShortcuts,
+) -> SidebarFrame {
     let width = usize::from(layout.sidebar_width);
     let height = usize::from(layout.rows);
     let cards = build_cards(tabs, width.max(1));
-    let footer = sidebar_footer(width, height);
+    let footer = configured_footer(width, height, shortcuts);
     let footer_start = height.saturating_sub(footer.len());
     let content = sidebar_content_rows(&cards, footer_start);
     let palette = SidebarPalette::new();
@@ -26,8 +30,8 @@ pub(super) fn build_sidebar_frame(layout: &Layout, tabs: &[SidebarTab]) -> Sideb
 
     for row_index in 0..height {
         let row = if row_index >= footer_start {
-            let (kind, text) = footer[row_index - footer_start];
-            SidebarContentRow::chrome(kind, text)
+            let (kind, text) = &footer[row_index - footer_start];
+            SidebarContentRow::chrome(*kind, text)
         } else {
             content
                 .get(row_index)

@@ -10,10 +10,12 @@ use crossterm::style::{
 use crate::render::Layout;
 
 use super::cache::{SidebarCache, SidebarPaintRow};
+use super::footer::SidebarShortcuts;
 use super::frame::build_sidebar_frame;
 use super::hit_map::SidebarMap;
 use super::model::SidebarTab;
 
+#[cfg(test)]
 pub fn draw_sidebar(
     out: &mut impl Write,
     layout: &Layout,
@@ -21,11 +23,29 @@ pub fn draw_sidebar(
     cache: &mut SidebarCache,
     force: bool,
 ) -> Result<SidebarMap> {
+    draw_sidebar_with_shortcuts(
+        out,
+        layout,
+        tabs,
+        cache,
+        force,
+        &SidebarShortcuts::default(),
+    )
+}
+
+pub(super) fn draw_sidebar_with_shortcuts(
+    out: &mut impl Write,
+    layout: &Layout,
+    tabs: &[SidebarTab],
+    cache: &mut SidebarCache,
+    force: bool,
+    shortcuts: &SidebarShortcuts,
+) -> Result<SidebarMap> {
     if !layout.sidebar_visible || layout.sidebar_width == 0 {
         return Ok(SidebarMap::empty(layout.rows, layout.sidebar_width));
     }
 
-    let frame = build_sidebar_frame(layout, tabs);
+    let frame = build_sidebar_frame(layout, tabs, shortcuts);
     paint_changed_rows(out, layout.sidebar_width, &frame.rows, cache, force)?;
     Ok(frame.map)
 }

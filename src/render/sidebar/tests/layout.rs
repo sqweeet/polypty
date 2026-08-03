@@ -23,6 +23,9 @@ fn sidebar_footer_is_anchored_and_not_clickable() {
     assert!(map.row_tab[footer_start..].iter().all(Option::is_none));
     assert!(String::from_utf8_lossy(&out).contains("tabs"));
     assert!(String::from_utf8_lossy(&out).contains("Alt+t new tab"));
+    assert!(String::from_utf8_lossy(&out).contains("Alt+[/] tabs"));
+    assert!(String::from_utf8_lossy(&out).contains("Alt+v/s split"));
+    assert!(String::from_utf8_lossy(&out).contains("Alt+hjkl pane"));
     assert!(String::from_utf8_lossy(&out).contains("Alt+q quit"));
 
     out.clear();
@@ -69,4 +72,21 @@ fn sidebar_viewport_keeps_active_tab_visible_when_shrinking() {
     let map = draw_sidebar(&mut out, &one_row, &tabs, &mut cache, true).unwrap();
     assert_eq!(map.row_tab, vec![Some(6)]);
     assert!(String::from_utf8_lossy(&out).contains("agent-6"));
+}
+
+#[test]
+fn sidebar_footer_reflects_configured_shortcuts() {
+    let shortcuts = SidebarShortcuts {
+        new_tab: Some("Ctrl+n".into()),
+        quit: None,
+        ..SidebarShortcuts::default()
+    };
+    let text = configured_footer(18, 12, &shortcuts)
+        .into_iter()
+        .map(|(_, text)| text)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(text.contains("Ctrl+n new tab"));
+    assert!(text.contains("— quit"));
 }

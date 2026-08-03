@@ -1,6 +1,5 @@
 use crate::render::Layout;
 
-const SIDEBAR_DEFAULT: u16 = 18;
 const SIDEBAR_MIN: u16 = 10;
 const TERM_MIN_COLS: u16 = 20;
 
@@ -26,12 +25,17 @@ impl Viewport {
         self.dragging_sidebar = false;
     }
 
-    pub(super) fn new(cols: u16, rows: u16) -> Self {
+    pub(super) fn configured(
+        cols: u16,
+        rows: u16,
+        sidebar_visible: bool,
+        sidebar_width: u16,
+    ) -> Self {
         Self {
             cols: cols.max(1),
             rows: rows.max(1),
-            sidebar_visible: true,
-            sidebar_width: SIDEBAR_DEFAULT,
+            sidebar_visible,
+            sidebar_width: sidebar_width.max(SIDEBAR_MIN),
             dragging_sidebar: false,
         }
     }

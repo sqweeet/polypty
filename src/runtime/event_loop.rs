@@ -5,12 +5,19 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyEventKind, KeyModifiers};
 
 use super::signals::{ResizeWatcher, ShutdownLatch};
-use crate::app::App;
+use crate::{app::App, config::Config};
 
-pub(super) fn run(shutdown: &ShutdownLatch) -> Result<()> {
+pub(super) fn run(shutdown: &ShutdownLatch, config: &Config) -> Result<()> {
     let (cols, rows) = crossterm::terminal::size().context("terminal size")?;
     let mut event_loop = EventLoop {
-        app: App::new(cols, rows)?,
+        app: App::configured(
+            cols,
+            rows,
+            config.keymap.clone(),
+            config.sidebar.visible,
+            config.sidebar.width,
+            config.shell.clone(),
+        )?,
         output: stdout(),
         resizes: ResizeWatcher::install()?,
     };

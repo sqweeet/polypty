@@ -1,53 +1,77 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+mod config;
+mod defaults;
 
-use super::Action;
+use anyhow::{bail, Context, Result};
+use crossterm::event::KeyEvent;
 
-/// Map a host key to a mux action, leaving unbound keys for the child PTY.
-pub fn map_key(key: KeyEvent) -> Action {
-    let modifiers = key.modifiers;
-    let alt = modifiers.contains(KeyModifiers::ALT);
-    let ctrl = modifiers.contains(KeyModifiers::CONTROL);
-    let shift = modifiers.contains(KeyModifiers::SHIFT);
+use super::{chord::KeyChord, Action};
+use config::{action_name, config_action};
+use defaults::{default_label, default_map_key};
 
-    if ctrl && alt && matches!(key.code, KeyCode::Char('q' | 'Q' | 'й' | 'Й')) {
-        return Action::Quit;
+#[derive(Debug, Clone)]
+struct ActionBindings {
+    action: Action,
+    chords: Vec<KeyChord>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct Keymap {
+    overrides: Vec<ActionBindings>,
+}
+
+impl Keymap {
+    pub(crate) fn configured(entries: Vec<(String, Vec<String>)>) -> Result<Self> {
+        let mut overrides: Vec<ActionBindings> = Vec::new();
+        for (name, values) in entries {
+            let action =
+                config_action(&name).with_context(|| format!("unknown action `{name}`"))?;
+            if overrides.iter().any(|entry| entry.action == action) {
+                bail!("action `{name}` is configured more than once");
+            }
+            let mut chords = Vec::new();
+            for value in values {
+                let chord = KeyChord::parse(&value)
+                    .with_context(|| format!("invalid binding for `{name}`"))?;
+                if let Some(entry) = overrides.iter().find(|entry| entry.chords.contains(&chord)) {
+                    bail!(
+                        "key `{chord}` is assigned to both `{}` and `{name}`",
+                        action_name(entry.action)
+                    );
+                }
+                if chords.contains(&chord) {
+                    bail!("key `{chord}` is repeated for `{name}`");
+                }
+                chords.push(chord);
+            }
+            overrides.push(ActionBindings { action, chords });
+        }
+        Ok(Self { overrides })
     }
-    if ctrl && alt {
-        match key.code {
-            KeyCode::Left => return Action::PaneLeft,
-            KeyCode::Right => return Action::PaneRight,
-            KeyCode::Up => return Action::PaneUp,
-            KeyCode::Down => return Action::PaneDown,
-            _ => {}
+
+    pub fn map_key(&self, key: KeyEvent) -> Action {
+        for binding in &self.overrides {
+            if binding.chords.iter().any(|chord| chord.matches(key)) {
+                return binding.action;
+            }
+        }
+        let action = default_map_key(key);
+        if self.overrides.iter().any(|entry| entry.action == action) {
+            Action::Forward
+        } else {
+            action
         }
     }
-    if ctrl && shift && matches!(key.code, KeyCode::Char('v' | 'V' | 'м' | 'М')) {
-        return Action::PasteClipboard;
-    }
-    if !alt {
-        return Action::Forward;
-    }
 
-    match key.code {
-        KeyCode::Char('t' | 'T' | 'е' | 'Е') => Action::NewTab,
-        KeyCode::Char('w' | 'W' | 'ц' | 'Ц') => Action::CloseTab,
-        KeyCode::Char('q' | 'Q' | 'й' | 'Й') => Action::Quit,
-        KeyCode::Char('v' | 'V' | 'м' | 'М') => Action::SplitVertical,
-        KeyCode::Char('s' | 'S' | 'ы' | 'Ы') => Action::SplitHorizontal,
-        KeyCode::Char('x' | 'X' | 'ч' | 'Ч') => Action::ClosePane,
-        KeyCode::Char('o' | 'O' | 'щ' | 'Щ') => Action::NextPane,
-        KeyCode::Char('h' | 'H' | 'р' | 'Р') => Action::PaneLeft,
-        KeyCode::Char('j' | 'J' | 'о' | 'О') => Action::PaneDown,
-        KeyCode::Char('k' | 'K' | 'л' | 'Л') => Action::PaneUp,
-        KeyCode::Char('l' | 'L' | 'д' | 'Д') => Action::PaneRight,
-        KeyCode::Char('b' | 'B' | 'и' | 'И') => Action::ToggleSidebar,
-        KeyCode::Char('=' | '+') => Action::SidebarWider,
-        KeyCode::Char('-' | '_') => Action::SidebarNarrower,
-        KeyCode::Char(']' | 'n' | 'N' | 'ъ' | 'Ъ' | 'т' | 'Т') => Action::NextTab,
-        KeyCode::Char('[' | 'p' | 'P' | 'х' | 'Х' | 'з' | 'З') => Action::PrevTab,
-        KeyCode::Char(c @ '1'..='9') => Action::Tab(c as u8 - b'0'),
-        KeyCode::Right => Action::NextTab,
-        KeyCode::Left => Action::PrevTab,
-        _ => Action::Forward,
+    pub(crate) fn binding_label(&self, action: Action) -> Option<String> {
+        self.overrides
+            .iter()
+            .find(|entry| entry.action == action)
+            .map(|entry| entry.chords.first().map(ToString::to_string))
+            .unwrap_or_else(|| default_label(action).map(str::to_string))
     }
+}
+
+#[cfg(test)]
+pub fn map_key(key: KeyEvent) -> Action {
+    Keymap::default().map_key(key)
 }

@@ -15,6 +15,9 @@ tab → PTY/VT adapters, info, agent
 info → agent model
 ```
 
+`runtime` также загружает пользовательский TOML-конфиг до входа в raw mode и
+передаёт готовые `Keymap`, sidebar settings и shell в composition root `App`.
+
 - `runtime` владеет временем жизни процесса и host-терминала, создаёт `App`
   и передаёт ей события. Бизнес-правил в event loop нет.
 - `App` — верхний оркестратор. Нижние слои не вызывают `App` или `runtime`
@@ -32,7 +35,7 @@ info → agent model
 
 | Объект | Ответственность и состав |
 |---|---|
-| `MuxRuntime` | Удерживает однопроцессный `InstanceGuard`, устанавливает `ShutdownLatch`, входит в `HostTerminal` через RAII и запускает `EventLoop` с `App`, stdout и `ResizeWatcher`. |
+| `MuxRuntime` | Загружает `Config`, удерживает однопроцессный `InstanceGuard`, устанавливает `ShutdownLatch`, входит в `HostTerminal` через RAII и запускает `EventLoop` с `App`, stdout и `ResizeWatcher`. |
 | `App` | Содержит `WorkspaceBook`, `Viewport`, `FrameScheduler`, render-`Presenter`, заменяемые `Clipboard` и `SessionFactory`. Модули `session`, `interaction`, `polling`, `resize`, `draw` и `lifecycle` реализуют его façade. |
 | `Workspace` | Один пункт сайдбара: `PaneStore`, `SplitTree` и `FocusModel`. Каждая pane содержит одну `TerminalSession`; `snapshot` проецирует состояние для renderer без передачи владения. |
 | `Tab` | Стандартная PTY-реализация `TerminalSession`: `PtyTransport`, `TerminalEmulator`, `SessionMetadata` и `AgentTracker`. Создаётся через `PtySessionFactory`. |

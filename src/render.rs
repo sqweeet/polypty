@@ -10,5 +10,6 @@ pub use divider::draw_dividers;
 pub use frame::{begin_sync, clear, enable_color_passthrough, end_sync};
 pub use geometry::Layout;
 pub(crate) use presenter::Presenter;
+pub(crate) use sidebar::SidebarShortcuts;
 pub use sidebar::{GlintFrame, SidebarTab};
 pub use terminal::{draw_terminal_rect, restore_terminal_cursor, TermCache};

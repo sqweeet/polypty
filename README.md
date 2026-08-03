@@ -39,6 +39,28 @@ mux
 Без них сам mux работает, но `Ctrl+Shift+V` и fallback-вставка средней кнопкой
 не смогут прочитать системный clipboard/PRIMARY selection.
 
+## Конфигурация
+
+Настройки читаются из `~/.config/mux/config.toml` (или
+`$XDG_CONFIG_HOME/mux/config.toml`). Можно менять бинды, начальную ширину и
+видимость сайдбара, а также shell для новых pane. Неуказанные значения сохраняют
+встроенные defaults; подсказки в сайдбаре следуют настроенным биндам.
+
+```toml
+shell = "/bin/zsh"
+
+[sidebar]
+visible = true
+width = 20
+
+[bindings]
+new-tab = "ctrl+n"
+quit = ["alt+q", "f12"]
+close-pane = []
+```
+
+Полный формат, имена действий и клавиш: [docs/configuration.md](docs/configuration.md).
+
 ## Управление
 
 | Клавиши | Действие |

@@ -13,7 +13,7 @@ use crate::app::App;
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
-        let quit = match input::map_key(key) {
+        let quit = match self.keymap.map_key(key) {
             Action::Quit => {
                 self.shutdown();
                 true

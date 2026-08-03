@@ -1,5 +1,6 @@
 mod agent;
 mod app;
+mod config;
 mod core;
 mod info;
 mod input;

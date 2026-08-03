@@ -6,7 +6,7 @@ use crate::tab::environment::child_command;
 use super::{input::PtyInputChannel, output::PtyOutputChannel, PtyTransport};
 
 impl PtyTransport {
-    pub fn spawn(id: u64, cols: u16, rows: u16) -> Result<Self> {
+    pub fn spawn(id: u64, cols: u16, rows: u16, shell: Option<&str>) -> Result<Self> {
         let pair = native_pty_system()
             .openpty(PtySize {
                 rows,
@@ -17,7 +17,7 @@ impl PtyTransport {
             .context("open pty")?;
         let child = pair
             .slave
-            .spawn_command(child_command(id))
+            .spawn_command(child_command(id, shell))
             .context("spawn shell")?;
         drop(pair.slave);
 

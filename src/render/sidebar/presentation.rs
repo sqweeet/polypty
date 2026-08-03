@@ -5,18 +5,35 @@ use anyhow::Result;
 use crate::{agent::AgentState, render::Layout};
 
 use super::{
-    animation::SidebarAnimation, draw_sidebar, GlintFrame, SidebarCache, SidebarMap, SidebarTab,
+    animation::SidebarAnimation, footer::SidebarShortcuts, painter::draw_sidebar_with_shortcuts,
+    GlintFrame, SidebarCache, SidebarMap, SidebarTab,
 };
 
-#[derive(Default)]
 pub(in crate::render) struct SidebarPresentation {
     fingerprint: String,
     cache: SidebarCache,
     animation: SidebarAnimation,
     map: SidebarMap,
+    shortcuts: SidebarShortcuts,
+}
+
+impl Default for SidebarPresentation {
+    fn default() -> Self {
+        Self::new(SidebarShortcuts::default())
+    }
 }
 
 impl SidebarPresentation {
+    pub(in crate::render) fn new(shortcuts: SidebarShortcuts) -> Self {
+        Self {
+            fingerprint: String::new(),
+            cache: SidebarCache::default(),
+            animation: SidebarAnimation::default(),
+            map: SidebarMap::default(),
+            shortcuts,
+        }
+    }
+
     pub(in crate::render) fn invalidate(&mut self) {
         self.cache.invalidate();
         self.fingerprint.clear();
@@ -58,7 +75,14 @@ impl SidebarPresentation {
         fingerprint: &str,
         hard_clear: bool,
     ) -> Result<()> {
-        self.map = draw_sidebar(output, layout, tabs, &mut self.cache, hard_clear)?;
+        self.map = draw_sidebar_with_shortcuts(
+            output,
+            layout,
+            tabs,
+            &mut self.cache,
+            hard_clear,
+            &self.shortcuts,
+        )?;
         self.fingerprint.clear();
         self.fingerprint.push_str(fingerprint);
         Ok(())
