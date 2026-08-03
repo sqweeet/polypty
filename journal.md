@@ -231,3 +231,29 @@
   pin the new ready and glint palettes and bound consecutive-frame RGB deltas.
 - A live tmux capture rendered `codex           ✓` and confirmed the expected
   foreground/background SGR values. Independent audit reported no findings.
+
+## 2026-08-03 — Round 9: neutral glint and split-agent counts
+
+### Implemented
+
+- Removed the blue cast from the working animation. Both active and inactive
+  highlights now blend through equal RGB channels for a soft neutral-white
+  sheen across the existing two-row card.
+- Extended the workspace agent rollup with the number of represented panes.
+  Two matching split panes render as `codex ×2`; mixed kinds keep the dominant
+  agent and append the number of other panes, such as `claude+1`.
+- Kept the existing state priority across the aggregate. Any blocked pane wins,
+  otherwise working wins over ready, so the ready mark appears only when every
+  detected agent pane is ready.
+- Preserved critical blocked text on narrow sidebars by progressively reducing
+  it to `… · blocked`, `blocked`, and finally `!` instead of clipping its end.
+
+### Evidence
+
+- `cargo test`: 67 passed, 0 failed; strict clippy, rustfmt, release build, and
+  `git diff --check` pass.
+- Rollup tests cover matching and mixed kinds, pane counts, priority, and the
+  active-pane tie. Renderer tests cover split labels and narrow blocked forms.
+- A live tmux smoke created two real split panes, launched Codex-shaped working
+  processes in both, rendered `codex ×2`, and verified neutral glint spans on
+  both card rows. Independent audit reported no findings.
