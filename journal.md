@@ -185,3 +185,28 @@
 - A live tmux check showed the stable `codex` label while two captures differed
   in background SGR only. An independent audit found no animation, cursor,
   resize, cache, or performance blocker.
+
+## 2026-08-03 — Round 7: full-card glint and READY badge
+
+### Implemented
+
+- Extended the working glint across both the agent-name and path rows with one
+  shared phase, so the two-line tab reads as a single card.
+- Added half-cell color interpolation at 80 ms per frame. The wider muted
+  warm-neutral highlight now completes a default-width pass in about 4.16 s
+  without abrupt per-cell color jumps.
+- Removed the inline ready suffix. Ready cards keep the agent name on the left
+  and render a right-aligned green `READY` badge with dark text.
+- Moved sidebar foreground color into cached spans so the badge and ordinary
+  text can use different foreground/background pairs without style leakage.
+
+### Evidence
+
+- `cargo test`: 66 passed, 0 failed; strict clippy, rustfmt, and release build
+  pass.
+- Consecutive-frame RGB deltas are bounded, both working rows change together,
+  and READY badges preserve exact widths from 1 through 18 columns.
+- Live tmux captures confirmed background changes on both rows and rendered
+  `codex       READY` with the expected green badge SGR.
+- Independent audit found no color-math, cache, narrow-width, cursor, resize,
+  or animation-performance blocker.
