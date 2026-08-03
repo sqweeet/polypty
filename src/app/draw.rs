@@ -10,10 +10,6 @@ use super::App;
 use super::OUTPUT_QUIET_DELAY;
 
 const OUTPUT_MAX_FRAME_DELAY: Duration = Duration::from_millis(16);
-/// Two interpolated color steps per cell keep the full-card sweep smooth while
-/// preserving a calm roughly four-second pass at the default sidebar width.
-const SIDEBAR_GLINT_FRAME: Duration = Duration::from_millis(80);
-
 impl App {
     pub fn needs_draw(&self) -> bool {
         let now = Instant::now();
@@ -37,9 +33,7 @@ impl App {
             .cursor_settle_until
             .is_some_and(|deadline| now >= deadline);
         cursor_due
-            || (self.sidebar_visible
-                && self.sidebar_map.has_visible_working
-                && glint_step(self.sidebar_glint_epoch, now) != self.painted_glint_step)
+            || (self.sidebar_visible && self.sidebar_animation.frame_due(&self.sidebar_map, now))
     }
 
     fn output_frame_ready(&self, now: Instant) -> bool {
@@ -70,17 +64,18 @@ impl App {
             .enumerate()
             .map(|(i, workspace)| {
                 let info = workspace.info();
+                let key = workspace.id();
                 SidebarTab {
+                    key,
                     primary: info.primary,
                     secondary: info.secondary,
                     agent: info.agent,
+                    glint_frame: self.sidebar_animation.frame(key, now),
                     active: i == active,
                 }
             })
             .collect();
-        let current_glint_step = glint_step(self.sidebar_glint_epoch, now);
-        let glint_due =
-            self.sidebar_map.has_visible_working && current_glint_step != self.painted_glint_step;
+        let glint_due = self.sidebar_animation.frame_due(&self.sidebar_map, now);
         let fp = sidebar_fingerprint(
             &side_tabs,
             layout.sidebar_visible,
@@ -121,11 +116,9 @@ impl App {
                 &layout,
                 &side_tabs,
                 &mut self.sidebar_cache,
-                current_glint_step,
                 hard,
             )?;
             self.sidebar_fp = fp;
-            self.painted_glint_step = current_glint_step;
         } else if !layout.sidebar_visible {
             self.sidebar_map = SidebarMap::default();
             self.sidebar_cache.invalidate();
@@ -182,11 +175,6 @@ fn is_output_frame_ready(
     quiet || now.duration_since(started) >= OUTPUT_MAX_FRAME_DELAY
 }
 
-fn glint_step(epoch: Instant, now: Instant) -> u64 {
-    let frames = now.duration_since(epoch).as_millis() / SIDEBAR_GLINT_FRAME.as_millis();
-    u64::try_from(frames).unwrap_or(u64::MAX)
-}
-
 fn sidebar_fingerprint(tabs: &[SidebarTab], visible: bool, width: u16, rows: u16) -> String {
     let mut fingerprint = format!("v{visible}|w{width}|r{rows}|");
     for (i, tab) in tabs.iter().enumerate() {
@@ -241,12 +229,14 @@ mod tests {
     #[test]
     fn agent_state_is_part_of_sidebar_fingerprint() {
         let mut tabs = vec![SidebarTab {
+            key: 1,
             primary: "codex".into(),
             secondary: "~/projects/mux".into(),
             agent: Some(crate::agent::AgentStatus::single(
                 crate::agent::AgentKind::Codex,
                 crate::agent::AgentState::Working,
             )),
+            glint_frame: Some(crate::render::GlintFrame::for_elapsed(Duration::ZERO)),
             active: true,
         }];
         let working = sidebar_fingerprint(&tabs, true, 18, 24);
@@ -257,13 +247,11 @@ mod tests {
 
         assert_ne!(working, blocked);
         assert_ne!(blocked, split);
-    }
 
-    #[test]
-    fn glint_step_is_quantized_without_timer_drift() {
-        let epoch = Instant::now();
-        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(79)), 0);
-        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(80)), 1);
-        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(321)), 4);
+        let structural = sidebar_fingerprint(&tabs, true, 18, 24);
+        tabs[0].glint_frame = Some(crate::render::GlintFrame::for_elapsed(
+            Duration::from_millis(800),
+        ));
+        assert_eq!(structural, sidebar_fingerprint(&tabs, true, 18, 24));
     }
 }

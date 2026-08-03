@@ -8,6 +8,9 @@ use crate::workspace::{SplitAxis, Workspace};
 
 mod draw;
 mod interaction;
+mod sidebar_animation;
+
+use sidebar_animation::SidebarAnimation;
 
 const SIDEBAR_DEFAULT: u16 = 18;
 /// Keep the host cursor hidden until a PTY output burst settles.
@@ -41,8 +44,7 @@ pub struct App {
     sidebar_fp: String,
     /// Row-level sidebar diff cache.
     sidebar_cache: SidebarCache,
-    sidebar_glint_epoch: Instant,
-    painted_glint_step: u64,
+    sidebar_animation: SidebarAnimation,
     /// Last sidebar hit map for mouse clicks.
     sidebar_map: SidebarMap,
     /// Dragging the sidebar edge to resize.
@@ -68,7 +70,6 @@ pub struct App {
 
 impl App {
     pub fn new(cols: u16, rows: u16) -> Result<Self> {
-        let sidebar_glint_epoch = Instant::now();
         let mut app = Self {
             workspaces: Vec::new(),
             active: 0,
@@ -81,8 +82,7 @@ impl App {
             needs_hard_clear: true,
             sidebar_fp: String::new(),
             sidebar_cache: SidebarCache::default(),
-            sidebar_glint_epoch,
-            painted_glint_step: 0,
+            sidebar_animation: SidebarAnimation::default(),
             sidebar_map: SidebarMap::default(),
             dragging_sidebar: false,
             dirty_ui: true,
@@ -222,6 +222,7 @@ impl App {
         if any {
             self.dirty_ui = true;
         }
+        any |= self.sync_sidebar_animation(Instant::now());
         Ok(any)
     }
 
@@ -279,6 +280,7 @@ impl App {
             self.sidebar_fp.clear();
             self.dirty_ui = true;
         }
+        self.sync_sidebar_animation(Instant::now());
         Ok(false)
     }
 
@@ -288,6 +290,23 @@ impl App {
         for workspace in &mut self.workspaces {
             workspace.kill_all();
         }
+    }
+
+    fn sync_sidebar_animation(&mut self, now: Instant) -> bool {
+        let states = self.workspaces.iter().map(|workspace| {
+            (
+                workspace.id(),
+                workspace.agent_status().map(|status| status.state),
+            )
+        });
+        let changed = self.sidebar_animation.reconcile(states, now);
+        if changed {
+            // A fresh Working transition can land on the same structural
+            // fingerprint and visual frame as the previous run.
+            self.sidebar_fp.clear();
+            self.dirty_ui = true;
+        }
+        changed
     }
 
     fn sync_active_workspace_geometry(&mut self) -> Result<()> {
@@ -335,6 +354,7 @@ impl App {
                 self.force_draw = true;
                 self.sidebar_fp.clear();
                 self.dirty_ui = true;
+                self.sync_sidebar_animation(Instant::now());
                 Ok(false)
             }
         }

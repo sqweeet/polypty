@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use anyhow::{bail, Result};
 use crossterm::event::{KeyEvent, MouseButton, MouseEvent, MouseEventKind};
 
@@ -98,6 +100,7 @@ impl App {
                 return Ok(false);
             }
         }
+        self.sync_sidebar_animation(Instant::now());
         Ok(false)
     }
 

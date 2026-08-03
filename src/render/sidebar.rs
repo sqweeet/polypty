@@ -1,4 +1,5 @@
 use std::io::Write;
+use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::cursor::{Hide, MoveTo};
@@ -19,7 +20,7 @@ pub struct SidebarMap {
     /// row -> tab index (None = empty / padding)
     pub row_tab: Vec<Option<usize>>,
     pub width: u16,
-    pub has_visible_working: bool,
+    visible_glints: Vec<(u64, GlintFrame)>,
 }
 
 impl SidebarMap {
@@ -28,6 +29,48 @@ impl SidebarMap {
             return None;
         }
         self.row_tab.get(row as usize).copied().flatten()
+    }
+
+    pub fn visible_glints(&self) -> &[(u64, GlintFrame)] {
+        &self.visible_glints
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_visible_glints(visible_glints: Vec<(u64, GlintFrame)>) -> Self {
+        Self {
+            visible_glints,
+            ..Self::default()
+        }
+    }
+}
+
+/// One card-local animation frame. Frames 1..48 are the visible sweep; 50
+/// collapses both off-card endpoints and the two-second rest, so the renderer
+/// sleeps instead of repainting an unchanged base background.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GlintFrame(u8);
+
+impl GlintFrame {
+    const FRAME_MS: u128 = 80;
+    const SWEEP_FRAMES: u128 = 50;
+    const CYCLE_FRAMES: u128 = 75;
+    const REST: Self = Self(Self::SWEEP_FRAMES as u8);
+
+    pub(crate) fn for_elapsed(elapsed: Duration) -> Self {
+        let frame = (elapsed.as_millis() / Self::FRAME_MS) % Self::CYCLE_FRAMES;
+        // The sweep is fully outside the card at both endpoints. Collapse
+        // those visually base-only frames into REST as well, avoiding two
+        // no-op sidebar writes at the rest/cycle boundaries.
+        if frame > 0 && frame + 1 < Self::SWEEP_FRAMES {
+            Self(frame as u8)
+        } else {
+            Self::REST
+        }
+    }
+
+    fn progress(self) -> Option<f32> {
+        (self.0 < Self::SWEEP_FRAMES as u8)
+            .then_some(f32::from(self.0) / (Self::SWEEP_FRAMES as f32 - 1.0))
     }
 }
 
@@ -60,17 +103,21 @@ struct SidebarPaintSpan {
 /// Sidebar tab row model — cmux-style primary + secondary.
 #[derive(Debug, Clone)]
 pub struct SidebarTab {
+    pub key: u64,
     pub primary: String,
     pub secondary: String,
     pub agent: Option<AgentStatus>,
+    pub glint_frame: Option<GlintFrame>,
     pub active: bool,
 }
 
 #[derive(Debug, Clone)]
 struct TabCard {
     tab_idx: usize,
+    key: u64,
     active: bool,
     agent_state: Option<AgentState>,
+    glint_frame: Option<GlintFrame>,
     /// kind per line: 2 primary, 3 secondary, 6/7/8 agent state
     lines: Vec<(u8, String)>,
 }
@@ -78,8 +125,10 @@ struct TabCard {
 #[derive(Debug, Clone)]
 struct SidebarContentRow {
     tab_idx: Option<usize>,
+    key: Option<u64>,
     active: bool,
     agent_state: Option<AgentState>,
+    glint_frame: Option<GlintFrame>,
     kind: u8,
     text: String,
 }
@@ -162,8 +211,10 @@ fn build_cards(tabs: &[SidebarTab], inner_w: usize) -> Vec<TabCard> {
 
         cards.push(TabCard {
             tab_idx: i,
+            key: tab.key,
             active: tab.active,
             agent_state: tab.agent.map(|status| status.state),
+            glint_frame: tab.glint_frame,
             lines,
         });
     }
@@ -189,8 +240,10 @@ fn card_viewport_rows(cards: &[TabCard], capacity: usize) -> Vec<SidebarContentR
             .take(capacity)
             .map(|(kind, text)| SidebarContentRow {
                 tab_idx: Some(active.tab_idx),
+                key: Some(active.key),
                 active: active.active,
                 agent_state: active.agent_state,
+                glint_frame: active.glint_frame,
                 kind: *kind,
                 text: text.clone(),
             })
@@ -223,8 +276,10 @@ fn card_viewport_rows(cards: &[TabCard], capacity: usize) -> Vec<SidebarContentR
         .flat_map(|card| {
             card.lines.iter().map(|(kind, text)| SidebarContentRow {
                 tab_idx: Some(card.tab_idx),
+                key: Some(card.key),
                 active: card.active,
                 agent_state: card.agent_state,
+                glint_frame: card.glint_frame,
                 kind: *kind,
                 text: text.clone(),
             })
@@ -232,31 +287,40 @@ fn card_viewport_rows(cards: &[TabCard], capacity: usize) -> Vec<SidebarContentR
         .collect()
 }
 
-fn working_glint_bg(active: bool, step: u64, column: usize, width: usize) -> Color {
-    const SUBSTEPS_PER_CELL: u64 = 2;
-    const WEIGHT: [u16; 9] = [255, 245, 217, 174, 126, 82, 45, 20, 0];
+fn working_glint_bg(active: bool, frame: GlintFrame, column: usize, width: usize) -> Color {
+    let (base, target) = if active { (48u8, 72u8) } else { (36u8, 54u8) };
 
-    let cycle = (width.saturating_add(8).max(1) as u64) * SUBSTEPS_PER_CELL;
-    let center = (step % cycle) as i64 - 4 * SUBSTEPS_PER_CELL as i64;
-    let column = (column as i64) * SUBSTEPS_PER_CELL as i64;
-    let distance = (column - center).unsigned_abs() as usize;
-    let weight = WEIGHT.get(distance).copied().unwrap_or(0);
-    let (base, target) = if active {
-        ((48, 48, 48), (80, 80, 80))
-    } else {
-        ((36, 36, 36), (64, 64, 64))
-    };
-
-    fn blend(base: u8, target: u8, weight: u16) -> u8 {
-        let base = u16::from(base);
-        let target = u16::from(target);
-        ((base * (255 - weight) + target * weight + 127) / 255) as u8
+    // A moving highlight is unreadable in an extremely narrow bar. Keep the
+    // semantic working lift, but remove motion and its timer entirely.
+    if width < 6 {
+        let lift = if active { 56 } else { 42 };
+        return Color::Rgb {
+            r: lift,
+            g: lift,
+            b: lift,
+        };
     }
 
+    let Some(progress) = frame.progress() else {
+        return Color::Rgb {
+            r: base,
+            g: base,
+            b: base,
+        };
+    };
+
+    let radius = (width as f32 / 4.0).clamp(1.5, 4.0);
+    let last_column = width.saturating_sub(1) as f32;
+    let center = -radius + progress * (last_column + radius * 2.0);
+    let distance = (column as f32 - center).abs();
+    let linear = (1.0 - distance / radius).clamp(0.0, 1.0);
+    let weight = linear * linear * (3.0 - 2.0 * linear);
+    let value = (f32::from(base) + f32::from(target - base) * weight).round() as u8;
+
     Color::Rgb {
-        r: blend(base.0, target.0, weight),
-        g: blend(base.1, target.1, weight),
-        b: blend(base.2, target.2, weight),
+        r: value,
+        g: value,
+        b: value,
     }
 }
 
@@ -265,7 +329,7 @@ fn sidebar_paint_spans(
     width: usize,
     base_bg: Color,
     base_fg: Color,
-    glint: Option<(bool, u64)>,
+    glint: Option<(bool, GlintFrame)>,
 ) -> Vec<SidebarPaintSpan> {
     let padded = pad_fit(label, width);
     let mut spans: Vec<SidebarPaintSpan> = Vec::new();
@@ -280,7 +344,7 @@ fn sidebar_paint_spans(
             continue;
         }
         let bg = glint
-            .map(|(active, step)| working_glint_bg(active, step, column, width))
+            .map(|(active, frame)| working_glint_bg(active, frame, column, width))
             .unwrap_or(base_bg);
         if let Some(span) = spans
             .last_mut()
@@ -388,13 +452,12 @@ pub fn draw_sidebar(
     layout: &Layout,
     tabs: &[SidebarTab],
     cache: &mut SidebarCache,
-    glint_step: u64,
     force: bool,
 ) -> Result<SidebarMap> {
     let mut map = SidebarMap {
         row_tab: vec![None; layout.rows as usize],
         width: layout.sidebar_width,
-        has_visible_working: false,
+        visible_glints: Vec::new(),
     };
 
     if !layout.sidebar_visible || layout.sidebar_width == 0 {
@@ -456,8 +519,10 @@ pub fn draw_sidebar(
     if show_heading {
         rows.push(SidebarContentRow {
             tab_idx: None,
+            key: None,
             active: false,
             agent_state: None,
+            glint_frame: None,
             kind: 4,
             text: "tabs".to_string(),
         });
@@ -469,27 +534,39 @@ pub fn draw_sidebar(
 
     let mut painted_rows = Vec::with_capacity(h);
     for y in 0..h {
-        let (tab_idx, active, agent_state, kind, text) = if y >= footer_start {
+        let (tab_idx, key, active, agent_state, glint_frame, kind, text) = if y >= footer_start {
             let (kind, text) = footer[y - footer_start];
-            (None, false, None, kind, text)
+            (None, None, false, None, None, kind, text)
         } else if y < rows.len() {
             let row = &rows[y];
             (
                 row.tab_idx,
+                row.key,
                 row.active,
                 row.agent_state,
+                row.glint_frame,
                 row.kind,
                 row.text.as_str(),
             )
         } else {
-            (None, false, None, 0u8, "")
+            (None, None, false, None, None, 0u8, "")
         };
 
         if let Some(idx) = tab_idx {
             map.row_tab[y] = Some(idx);
         }
         let working_row = agent_state == Some(AgentState::Working);
-        map.has_visible_working |= working_row;
+        if working_row && w >= 6 {
+            if let (Some(key), Some(frame)) = (key, glint_frame) {
+                if !map
+                    .visible_glints
+                    .iter()
+                    .any(|(visible, _)| *visible == key)
+                {
+                    map.visible_glints.push((key, frame));
+                }
+            }
+        }
 
         let row_bg = if active && kind != 0 { bg_active } else { bg };
         let fg = match kind {
@@ -514,7 +591,7 @@ pub fn draw_sidebar(
                 w,
                 row_bg,
                 fg,
-                working_row.then_some((active, glint_step)),
+                working_row.then_some((active, glint_frame.unwrap_or(GlintFrame::REST))),
             )
         };
         painted_rows.push(SidebarPaintRow { spans });
@@ -682,7 +759,7 @@ mod tests {
                     b: 48,
                 },
                 Color::White,
-                Some((true, 7)),
+                Some((true, GlintFrame(7))),
             );
             let text: String = spans.iter().map(|span| span.text.as_str()).collect();
             assert_eq!(UnicodeWidthStr::width(text.as_str()), width);
@@ -693,15 +770,19 @@ mod tests {
     fn tab_cards_have_no_blank_rows_between_them() {
         let tabs = [
             SidebarTab {
+                key: 1,
                 primary: "one".into(),
                 secondary: String::new(),
                 agent: None,
+                glint_frame: None,
                 active: true,
             },
             SidebarTab {
+                key: 2,
                 primary: "two".into(),
                 secondary: String::new(),
                 agent: None,
+                glint_frame: None,
                 active: false,
             },
         ];
@@ -716,9 +797,11 @@ mod tests {
         assert_eq!(sidebar_footer(18, 12)[0].1, "shortcuts");
 
         let long = [SidebarTab {
+            key: 1,
             primary: "a very long process title".into(),
             secondary: "~/projects/mux".into(),
             agent: None,
+            glint_frame: None,
             active: true,
         }];
         let cards = build_cards(&long, 8);
@@ -731,15 +814,17 @@ mod tests {
     fn sidebar_footer_is_anchored_and_not_clickable() {
         let layout = Layout::new(40, 12, true, 18);
         let tabs = [SidebarTab {
+            key: 1,
             primary: "shell".into(),
             secondary: "~/projects/mux".into(),
             agent: None,
+            glint_frame: None,
             active: true,
         }];
         let mut out = Vec::new();
         let mut cache = SidebarCache::default();
 
-        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, 0, false).unwrap();
+        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
         let footer_rows = sidebar_footer(18, 12).len();
         let footer_start = 12 - footer_rows;
 
@@ -751,7 +836,7 @@ mod tests {
         assert!(String::from_utf8_lossy(&out).contains("Alt+q quit"));
 
         out.clear();
-        draw_sidebar(&mut out, &layout, &tabs, &mut cache, 0, false).unwrap();
+        draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
         assert!(out.is_empty(), "unchanged sidebar should emit no bytes");
     }
 
@@ -759,6 +844,7 @@ mod tests {
     fn sidebar_viewport_keeps_active_tab_visible_when_shrinking() {
         let tabs: Vec<SidebarTab> = (0..8)
             .map(|idx| SidebarTab {
+                key: idx as u64,
                 primary: format!("agent-{idx}"),
                 secondary: if idx == 6 {
                     "~/projects/mux".to_string()
@@ -766,6 +852,7 @@ mod tests {
                     String::new()
                 },
                 agent: None,
+                glint_frame: None,
                 active: idx == 6,
             })
             .collect();
@@ -774,7 +861,7 @@ mod tests {
         for rows in [12, 7, 5, 2, 1] {
             let layout = Layout::new(40, rows, true, 18);
             let mut out = Vec::new();
-            let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, 0, false).unwrap();
+            let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
 
             assert!(
                 map.row_tab.contains(&Some(6)),
@@ -790,7 +877,7 @@ mod tests {
 
         let one_row = Layout::new(40, 1, true, 18);
         let mut out = Vec::new();
-        let map = draw_sidebar(&mut out, &one_row, &tabs, &mut cache, 0, true).unwrap();
+        let map = draw_sidebar(&mut out, &one_row, &tabs, &mut cache, true).unwrap();
         assert_eq!(map.row_tab, vec![Some(6)]);
         assert!(String::from_utf8_lossy(&out).contains("agent-6"));
     }
@@ -798,12 +885,14 @@ mod tests {
     #[test]
     fn agent_status_keeps_working_label_minimal() {
         let mut tabs = [SidebarTab {
+            key: 1,
             primary: "node".into(),
             secondary: "~/projects/mux".into(),
             agent: Some(AgentStatus::single(
                 crate::agent::AgentKind::Codex,
                 AgentState::Working,
             )),
+            glint_frame: Some(GlintFrame(10)),
             active: true,
         }];
 
@@ -824,6 +913,7 @@ mod tests {
     #[test]
     fn agent_status_labels_split_panes_compactly() {
         let mut tabs = [SidebarTab {
+            key: 1,
             primary: "node".into(),
             secondary: "~/projects/mux".into(),
             agent: Some(AgentStatus {
@@ -832,6 +922,7 @@ mod tests {
                 panes: 2,
                 mixed_kinds: false,
             }),
+            glint_frame: Some(GlintFrame(10)),
             active: true,
         }];
 
@@ -866,20 +957,22 @@ mod tests {
     #[test]
     fn working_glint_covers_both_rows_of_the_card() {
         let layout = Layout::new(40, 12, true, 18);
-        let tabs = [SidebarTab {
+        let mut tabs = [SidebarTab {
+            key: 1,
             primary: "node".into(),
             secondary: "~/projects/mux".into(),
             agent: Some(AgentStatus::single(
                 crate::agent::AgentKind::Codex,
                 AgentState::Working,
             )),
+            glint_frame: Some(GlintFrame(10)),
             active: true,
         }];
         let mut out = Vec::new();
         let mut cache = SidebarCache::default();
 
-        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, 1, false).unwrap();
-        assert!(map.has_visible_working);
+        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
+        assert_eq!(map.visible_glints(), &[(1, GlintFrame(10))]);
         let primary = cache.rows[1].clone();
         let secondary = cache.rows[2].clone();
         let primary_text: String = primary
@@ -890,17 +983,18 @@ mod tests {
         assert_eq!(primary_text, pad_fit("codex", 18));
 
         out.clear();
-        draw_sidebar(&mut out, &layout, &tabs, &mut cache, 1, false).unwrap();
+        draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
         assert!(out.is_empty());
 
-        draw_sidebar(&mut out, &layout, &tabs, &mut cache, 7, false).unwrap();
+        tabs[0].glint_frame = Some(GlintFrame(20));
+        draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
         assert!(!out.is_empty());
         assert_ne!(cache.rows[1], primary);
         assert_ne!(cache.rows[2], secondary);
     }
 
     #[test]
-    fn glint_colors_move_in_small_interpolated_steps() {
+    fn glint_is_neutral_smooth_and_has_a_true_rest() {
         fn rgb(color: Color) -> (u8, u8, u8) {
             match color {
                 Color::Rgb { r, g, b } => (r, g, b),
@@ -908,19 +1002,81 @@ mod tests {
             }
         }
 
-        assert_eq!(rgb(working_glint_bg(true, 18, 5, 18)), (80, 80, 80));
-        assert_eq!(rgb(working_glint_bg(false, 18, 5, 18)), (64, 64, 64));
-        assert_eq!(rgb(working_glint_bg(true, 0, 17, 18)), (48, 48, 48));
+        assert_eq!(
+            rgb(working_glint_bg(true, GlintFrame::REST, 5, 18)),
+            (48, 48, 48)
+        );
+        assert_eq!(
+            rgb(working_glint_bg(false, GlintFrame::REST, 5, 18)),
+            (36, 36, 36)
+        );
+        assert_eq!(
+            rgb(working_glint_bg(true, GlintFrame(25), 8, 18)),
+            (70, 70, 70)
+        );
+
+        for active in [false, true] {
+            let max = if active { 72 } else { 54 };
+            for frame in 0..50 {
+                for column in 0..18 {
+                    let (r, g, b) = rgb(working_glint_bg(active, GlintFrame(frame), column, 18));
+                    assert_eq!(r, g);
+                    assert_eq!(g, b);
+                    assert!(r <= max);
+                }
+            }
+        }
 
         for active in [false, true] {
             for column in 0..18 {
-                let before = rgb(working_glint_bg(active, 10, column, 18));
-                let after = rgb(working_glint_bg(active, 11, column, 18));
-                assert!(before.0.abs_diff(after.0) <= 6);
-                assert!(before.1.abs_diff(after.1) <= 6);
-                assert!(before.2.abs_diff(after.2) <= 6);
+                let before = rgb(working_glint_bg(active, GlintFrame(10), column, 18));
+                let after = rgb(working_glint_bg(active, GlintFrame(11), column, 18));
+                assert!(before.0.abs_diff(after.0) <= 7);
+                assert!(before.1.abs_diff(after.1) <= 7);
+                assert!(before.2.abs_diff(after.2) <= 7);
             }
         }
+
+        assert_eq!(
+            rgb(working_glint_bg(true, GlintFrame(20), 0, 5)),
+            (56, 56, 56)
+        );
+        assert_eq!(
+            rgb(working_glint_bg(false, GlintFrame(20), 0, 5)),
+            (42, 42, 42)
+        );
+    }
+
+    #[test]
+    fn glint_timeline_collapses_the_two_second_rest() {
+        assert_eq!(
+            GlintFrame::for_elapsed(Duration::from_millis(79)),
+            GlintFrame::REST
+        );
+        assert_eq!(
+            GlintFrame::for_elapsed(Duration::from_millis(80)),
+            GlintFrame(1)
+        );
+        assert_eq!(
+            GlintFrame::for_elapsed(Duration::from_millis(3_920)),
+            GlintFrame::REST
+        );
+        assert_eq!(
+            GlintFrame::for_elapsed(Duration::from_millis(4_000)),
+            GlintFrame::REST
+        );
+        assert_eq!(
+            GlintFrame::for_elapsed(Duration::from_millis(5_920)),
+            GlintFrame::REST
+        );
+        assert_eq!(
+            GlintFrame::for_elapsed(Duration::from_millis(6_000)),
+            GlintFrame::REST
+        );
+        assert_eq!(
+            GlintFrame::for_elapsed(Duration::from_millis(6_080)),
+            GlintFrame(1)
+        );
     }
 
     #[test]
@@ -977,12 +1133,14 @@ mod tests {
     fn offscreen_working_tab_does_not_keep_glint_running() {
         let tabs: Vec<SidebarTab> = (0..8)
             .map(|index| SidebarTab {
+                key: index as u64,
                 primary: format!("tab-{index}"),
                 secondary: String::new(),
                 agent: (index == 0).then_some(AgentStatus::single(
                     crate::agent::AgentKind::Codex,
                     AgentState::Working,
                 )),
+                glint_frame: (index == 0).then_some(GlintFrame(10)),
                 active: index == 6,
             })
             .collect();
@@ -990,7 +1148,36 @@ mod tests {
         let mut out = Vec::new();
         let mut cache = SidebarCache::default();
 
-        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, 1, false).unwrap();
-        assert!(!map.has_visible_working);
+        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
+        assert!(map.visible_glints().is_empty());
+    }
+
+    #[test]
+    fn narrow_working_card_is_static_and_does_not_schedule_animation() {
+        let tabs = [SidebarTab {
+            key: 1,
+            primary: "codex".into(),
+            secondary: "~/mux".into(),
+            agent: Some(AgentStatus::single(
+                crate::agent::AgentKind::Codex,
+                AgentState::Working,
+            )),
+            glint_frame: Some(GlintFrame(20)),
+            active: true,
+        }];
+        let layout = Layout::new(25, 12, true, 5);
+        let mut out = Vec::new();
+        let mut cache = SidebarCache::default();
+
+        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
+        assert!(map.visible_glints().is_empty());
+        assert!(cache.rows[1].spans.iter().all(|span| {
+            span.bg
+                == Color::Rgb {
+                    r: 56,
+                    g: 56,
+                    b: 56,
+                }
+        }));
     }
 }

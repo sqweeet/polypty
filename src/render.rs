@@ -12,7 +12,7 @@ use crossterm::terminal::{Clear, ClearType};
 mod sidebar;
 mod terminal;
 
-pub use sidebar::{draw_sidebar, SidebarCache, SidebarMap, SidebarTab};
+pub use sidebar::{draw_sidebar, GlintFrame, SidebarCache, SidebarMap, SidebarTab};
 pub use terminal::{draw_terminal_rect, restore_terminal_cursor, TermCache};
 
 /// Geometry of the mux chrome + terminal pane.

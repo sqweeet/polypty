@@ -51,6 +51,8 @@ impl Pane {
 }
 
 pub struct Workspace {
+    /// Immutable sidebar identity; pane focus and split collapse never change it.
+    id: u64,
     panes: Vec<Pane>,
     root: Option<SplitNode>,
     active: u64,
@@ -62,6 +64,7 @@ impl Workspace {
     pub fn new(tab: Tab) -> Self {
         let active = tab.id;
         Self {
+            id: active,
             panes: vec![Pane::new(tab)],
             root: Some(SplitNode::Leaf(active)),
             active,
@@ -72,6 +75,10 @@ impl Workspace {
 
     pub fn pane_count(&self) -> usize {
         self.panes.len()
+    }
+
+    pub fn id(&self) -> u64 {
+        self.id
     }
 
     pub fn active_tab(&self) -> &Tab {
@@ -94,15 +101,19 @@ impl Workspace {
 
     pub fn info(&self) -> TabInfo {
         let mut info = self.active_tab().info.clone();
+        info.agent = self.agent_status();
+        info
+    }
+
+    pub fn agent_status(&self) -> Option<crate::agent::AgentStatus> {
         let active = self.active;
-        info.agent = agent::rollup(
+        agent::rollup(
             self.panes
                 .iter()
                 .filter(|pane| pane.tab.id == active)
                 .chain(self.panes.iter().filter(|pane| pane.tab.id != active))
                 .filter_map(|pane| pane.tab.info.agent),
-        );
-        info
+        )
     }
 
     pub fn active_screen(&self) -> &vt100::Screen {
