@@ -134,3 +134,29 @@
 - An independent final rerun measured 70 ms for `Alt+q` and 68 ms for
   `SIGTERM` under the same query flood, restored host modes to `0/0/0`, and
   found no remaining high/medium blocker in the target paths.
+
+## 2026-08-03 — Round 5: CI and live agent visibility
+
+### Implemented
+
+- Added GitHub Actions validation on pushes to `main` and pull requests: fmt,
+  strict clippy, tests, and release builds across Ubuntu and macOS.
+- Added per-pane coding-agent identification from the terminal's real
+  foreground process group. Background jobs and arbitrary runtime arguments
+  cannot masquerade as an agent.
+- Added live `ready`, `working`, and `blocked` classification from the current
+  VT screen, fresh OSC title, and PTY activity. Old scrollback and OSC titles
+  from a previous foreground job are excluded.
+- Aggregated split-pane state into each workspace card with priority
+  `blocked > working > ready`, so an inactive blocked pane remains visible.
+- Added restrained green/yellow/red status rows without increasing the
+  two-line sidebar card height; semantic state is included in redraw caching.
+
+### Evidence
+
+- `cargo test`: 60 passed, 0 failed.
+- `cargo fmt --all -- --check`, strict clippy, and release build pass.
+- Foreground-group tests prove a newer background agent cannot replace the
+  foreground Codex; runtime payload and `tmux` false positives are covered.
+- A live tmux-driven PTY check observed `● codex · working`,
+  `● codex · blocked`, and `○ codex · ready` in mux's real sidebar.

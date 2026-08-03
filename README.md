@@ -1,5 +1,7 @@
 # mux
 
+[![CI](https://github.com/sqweeet/mux/actions/workflows/ci.yml/badge.svg)](https://github.com/sqweeet/mux/actions/workflows/ci.yml)
+
 Минимальный terminal multiplexer на Rust для Linux/Unix: вкладки в сайдбаре,
 вложенные split panes и отдельный PTY для каждой pane. Область терминала
 рендерится напрямую из VT-сетки, поэтому полноэкранные TUI — редакторы,
@@ -77,6 +79,32 @@ VT-состояние и курсор. Сайдбар показывает пр�
 При слишком маленьком viewport mux временно показывает только ветку с активной
 pane, не сжимая скрытые TUI до разрушительного размера `1x1`. После увеличения
 окна дерево splits и рабочие размеры pane восстанавливаются.
+
+## Статусы coding agents
+
+На Linux mux распознаёт coding agent в foreground process group каждой pane и
+заменяет первую строку карточки компактным живым статусом:
+
+| Вид | Состояние |
+|---|---|
+| `● codex · working` | агент выполняет задачу |
+| `● codex · blocked` | агент ждёт подтверждения или ответа |
+| `○ codex · ready` | агент готов к следующей команде |
+
+`working` подсвечивается жёлтым, `blocked` — красным, `ready` — зелёным. Если во
+вкладке несколько split panes, наверх поднимается самый важный статус:
+`blocked` → `working` → `ready`, включая неактивные pane.
+
+Идентификация поддерживает Codex, Claude Code, OpenCode, Gemini CLI, Cursor
+Agent, GitHub Copilot, Kimi, Amp, Pi, Devin, Droid, Kiro и Grok. Для Codex,
+Claude Code и OpenCode используются известные сигналы live-screen и OSC title;
+для остальных состояние определяется best-effort по живому экрану и активности
+PTY. Неизвестные процессы продолжают работать как обычно без agent badge.
+
+Детектор анализирует только текущий экран подтверждённого foreground-процесса:
+фоновый helper или старая approval-фраза из scrollback не должны менять статус.
+Это только индикация — mux никогда не отвечает агенту автоматически. Подход к
+карточкам и приоритетам вдохновлён [Herdr](https://github.com/herdrdev/herdr).
 
 ## Терминальная совместимость и устойчивость
 
