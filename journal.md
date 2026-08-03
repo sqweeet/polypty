@@ -160,3 +160,28 @@
   foreground Codex; runtime payload and `tmux` false positives are covered.
 - A live tmux-driven PTY check observed `● codex · working`,
   `● codex · blocked`, and `○ codex · ready` in mux's real sidebar.
+
+## 2026-08-03 — Round 6: restrained working glint
+
+### Implemented
+
+- Removed status circles and the redundant `working` label. A working card now
+  shows only the agent name; `ready` and the important `blocked` state remain
+  explicit suffixes.
+- Replaced the working text color with one low-contrast warm background band
+  moving across the primary row every 120 ms. Text, path, and layout stay
+  stable.
+- Quantized animation from a monotonic epoch, so delayed frames skip forward
+  without timer drift. Off-screen working cards do not schedule animation.
+- Kept glint frames sidebar-only: they repaint cached background spans and
+  restore the active PTY cursor without rebuilding the terminal cell grid.
+
+### Evidence
+
+- `cargo test`: 64 passed, 0 failed; strict clippy, rustfmt, and release build
+  pass.
+- Cache tests prove identical steps emit nothing, a new step changes only the
+  working primary row, and Unicode spans retain exact display width.
+- A live tmux check showed the stable `codex` label while two captures differed
+  in background SGR only. An independent audit found no animation, cursor,
+  resize, cache, or performance blocker.
