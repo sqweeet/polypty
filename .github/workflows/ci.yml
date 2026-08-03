@@ -32,6 +32,9 @@ jobs:
       - name: Restore Cargo cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Check architecture limits
+        run: ./scripts/check-architecture.sh
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
