@@ -2,6 +2,7 @@ use std::io::Write;
 
 use anyhow::Result;
 
+use crate::agent;
 use crate::info::TabInfo;
 use crate::render::{self, Divider, TermCache, TerminalRect};
 use crate::tab::Tab;
@@ -301,8 +302,17 @@ impl Workspace {
             .tab
     }
 
-    pub fn info(&self) -> &TabInfo {
-        &self.active_tab().info
+    pub fn info(&self) -> TabInfo {
+        let mut info = self.active_tab().info.clone();
+        let active = self.active;
+        info.agent = agent::rollup(
+            self.panes
+                .iter()
+                .filter(|pane| pane.tab.id == active)
+                .chain(self.panes.iter().filter(|pane| pane.tab.id != active))
+                .filter_map(|pane| pane.tab.info.agent),
+        );
+        info
     }
 
     pub fn active_screen(&self) -> &vt100::Screen {
@@ -460,7 +470,7 @@ impl Workspace {
     pub fn poll(&mut self, visible_area: Option<TerminalRect>) -> Result<WorkspacePoll> {
         let mut result = WorkspacePoll::default();
         let visible_layout = visible_area.map(|area| self.layout(area));
-        let sidebar_before = self.info().clone();
+        let sidebar_before = self.info();
         for pane in &mut self.panes {
             let changed = pane.tab.poll()?;
             if changed
@@ -476,7 +486,7 @@ impl Workspace {
                     .saturating_add(pane.tab.last_poll_bytes());
             }
         }
-        result.sidebar_changed = self.info() != &sidebar_before;
+        result.sidebar_changed = self.info() != sidebar_before;
         Ok(result)
     }
 

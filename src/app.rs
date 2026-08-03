@@ -705,10 +705,14 @@ impl App {
             .workspaces
             .iter()
             .enumerate()
-            .map(|(i, workspace)| SidebarTab {
-                primary: workspace.info().primary.clone(),
-                secondary: workspace.info().secondary.clone(),
-                active: i == active,
+            .map(|(i, workspace)| {
+                let info = workspace.info();
+                SidebarTab {
+                    primary: info.primary,
+                    secondary: info.secondary,
+                    agent: info.agent,
+                    active: i == active,
+                }
             })
             .collect();
         let fp = sidebar_fingerprint(
@@ -830,8 +834,13 @@ fn sidebar_fingerprint(tabs: &[SidebarTab], visible: bool, width: u16, rows: u16
     let mut fingerprint = format!("v{visible}|w{width}|r{rows}|");
     for (i, tab) in tabs.iter().enumerate() {
         fingerprint.push_str(&format!(
-            "{i}:{}:{}:{}|",
-            tab.primary, tab.secondary, tab.active as u8
+            "{i}:{}:{}:{}:{}|",
+            tab.primary,
+            tab.secondary,
+            tab.agent
+                .map(|status| format!("{}:{}", status.kind.label(), status.state.label()))
+                .unwrap_or_default(),
+            tab.active as u8
         ));
     }
     fingerprint
@@ -897,5 +906,23 @@ mod tests {
             started + OUTPUT_MAX_FRAME_DELAY,
         ));
         assert!(is_output_frame_ready(None, None, started));
+    }
+
+    #[test]
+    fn agent_state_is_part_of_sidebar_fingerprint() {
+        let mut tabs = vec![SidebarTab {
+            primary: "codex".into(),
+            secondary: "~/projects/mux".into(),
+            agent: Some(crate::agent::AgentStatus {
+                kind: crate::agent::AgentKind::Codex,
+                state: crate::agent::AgentState::Working,
+            }),
+            active: true,
+        }];
+        let working = sidebar_fingerprint(&tabs, true, 18, 24);
+        tabs[0].agent.as_mut().unwrap().state = crate::agent::AgentState::Blocked;
+        let blocked = sidebar_fingerprint(&tabs, true, 18, 24);
+
+        assert_ne!(working, blocked);
     }
 }

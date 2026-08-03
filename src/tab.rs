@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 use anyhow::{bail, Context, Result};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
 
+use crate::agent::{self, AgentKind, AgentState, AgentStatus};
 use crate::info::{self, OscTracker, TabInfo};
 
 const PTY_READ_CHUNK_BYTES: usize = 8 * 1024;
@@ -210,6 +211,11 @@ pub struct Tab {
     cwd: Option<String>,
     process: Option<String>,
     last_probe: Instant,
+    agent_kind: Option<AgentKind>,
+    agent_state: Option<AgentState>,
+    agent_title_revision: u64,
+    last_output_at: Option<Instant>,
+    last_agent_scan: Instant,
     cols: u16,
     rows: u16,
     /// Number of actual PTY bytes drained by the most recent poll.
@@ -296,6 +302,7 @@ impl Tab {
             info: TabInfo {
                 primary: "shell".into(),
                 secondary: String::new(),
+                agent: None,
             },
             parser,
             master: pair.master,
@@ -315,11 +322,18 @@ impl Tab {
             cwd: None,
             process: None,
             last_probe: Instant::now() - Duration::from_secs(10),
+            agent_kind: None,
+            agent_state: None,
+            agent_title_revision: 0,
+            last_output_at: None,
+            last_agent_scan: Instant::now() - Duration::from_secs(10),
             cols,
             rows,
             last_poll_bytes: 0,
         };
         tab.refresh_info(true);
+        tab.refresh_agent_status(Instant::now(), true);
+        tab.recompose();
         Ok(tab)
     }
 
@@ -347,6 +361,7 @@ impl Tab {
 
     /// Drain pending PTY output into the VT parser. Returns true if anything changed.
     pub fn poll(&mut self) -> Result<bool> {
+        let now = Instant::now();
         let mut changed = false;
         self.last_poll_bytes = 0;
         let outcome = drain_output(
@@ -366,6 +381,7 @@ impl Tab {
         }
 
         if outcome.bytes > 0 {
+            self.last_output_at = Some(now);
             changed = true;
             self.dirty = true;
 
@@ -388,7 +404,8 @@ impl Tab {
         }
 
         // Refresh process/cwd from /proc a few times a second (cmux settles titles).
-        if self.last_probe.elapsed() >= Duration::from_millis(400) {
+        let probed = self.last_probe.elapsed() >= Duration::from_millis(400);
+        if probed {
             if self.refresh_info(false) {
                 changed = true;
             }
@@ -399,6 +416,9 @@ impl Tab {
             if self.info != prev {
                 changed = true;
             }
+        }
+        if self.refresh_agent_status(now, outcome.bytes > 0 || probed) {
+            changed = true;
         }
 
         Ok(changed)
@@ -411,7 +431,14 @@ impl Tab {
     fn refresh_info(&mut self, force: bool) -> bool {
         self.last_probe = Instant::now();
         if let Some(pid) = self.shell_pid {
-            let (cwd, proc) = info::probe_session(pid);
+            #[cfg(unix)]
+            let foreground_pgrp = self
+                .master
+                .process_group_leader()
+                .and_then(|value| u32::try_from(value).ok());
+            #[cfg(not(unix))]
+            let foreground_pgrp = None;
+            let (cwd, proc) = info::probe_session(pid, foreground_pgrp);
             if let Some(c) = cwd {
                 // Prefer OSC 7 when present; /proc is fallback / cross-check.
                 if self.osc.cwd.is_none() {
@@ -431,17 +458,59 @@ impl Tab {
         force || self.info != prev
     }
 
+    fn refresh_agent_status(&mut self, now: Instant, force: bool) -> bool {
+        if !force && now.duration_since(self.last_agent_scan) < agent::SCAN_INTERVAL {
+            return false;
+        }
+        self.last_agent_scan = now;
+
+        let next_kind = self.process.as_deref().and_then(agent::identify_name);
+        if next_kind != self.agent_kind {
+            self.agent_kind = next_kind;
+            self.agent_state = next_kind.map(|_| AgentState::Ready);
+            // Ignore a title emitted by the previous foreground job. A newly
+            // detected agent must publish another OSC title before it is used.
+            self.agent_title_revision = self.osc.title_revision();
+            self.recompose();
+            return true;
+        }
+
+        let next_state = next_kind.map(|kind| {
+            let title = if self.osc.title_revision() > self.agent_title_revision {
+                self.osc.title.as_deref().unwrap_or_default()
+            } else {
+                ""
+            };
+            let quiet_for = self
+                .last_output_at
+                .map(|last| now.saturating_duration_since(last))
+                .unwrap_or(Duration::MAX);
+            agent::detect_state(kind, self.parser.screen(), title, quiet_for)
+        });
+        if next_state == self.agent_state {
+            return false;
+        }
+        self.agent_state = next_state;
+        self.recompose();
+        true
+    }
+
     fn recompose(&mut self) {
         // Keep OSC cwd authoritative when we have it.
         if let Some(c) = self.osc.cwd.clone() {
             self.cwd = Some(c);
         }
-        self.info = info::compose_info(
+        let mut info = info::compose_info(
             &self.title,
             self.cwd.as_deref(),
             self.process.as_deref(),
             self.custom_title,
         );
+        info.agent = self
+            .agent_kind
+            .zip(self.agent_state)
+            .map(|(kind, state)| AgentStatus { kind, state });
+        self.info = info;
     }
 
     pub fn write_all(&mut self, data: &[u8]) -> Result<()> {

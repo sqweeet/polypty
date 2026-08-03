@@ -12,6 +12,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 use vt100::{Cell, Screen};
 
+use crate::agent::{AgentState, AgentStatus};
+
 /// Geometry of the mux chrome + terminal pane.
 #[derive(Debug, Clone, Copy)]
 pub struct Layout {
@@ -395,6 +397,7 @@ struct SidebarPaintRow {
 pub struct SidebarTab {
     pub primary: String,
     pub secondary: String,
+    pub agent: Option<AgentStatus>,
     pub active: bool,
 }
 
@@ -402,7 +405,7 @@ pub struct SidebarTab {
 struct TabCard {
     tab_idx: usize,
     active: bool,
-    /// kind per line: 2 primary, 3 secondary
+    /// kind per line: 2 primary, 3 secondary, 6/7/8 agent state
     lines: Vec<(u8, String)>,
 }
 
@@ -413,20 +416,35 @@ fn build_cards(tabs: &[SidebarTab], inner_w: usize) -> Vec<TabCard> {
     for (i, tab) in tabs.iter().enumerate() {
         let mut lines = Vec::new();
 
-        let primary = if tab.primary.is_empty() {
-            "shell".to_string()
+        let (primary_kind, primary) = if let Some(status) = tab.agent {
+            let kind = match status.state {
+                AgentState::Ready => 6,
+                AgentState::Working => 7,
+                AgentState::Blocked => 8,
+            };
+            (
+                kind,
+                format!(
+                    "{} {} · {}",
+                    status.state.marker(),
+                    status.kind.label(),
+                    status.state.label()
+                ),
+            )
+        } else if tab.primary.is_empty() {
+            (2, "shell".to_string())
         } else {
-            tab.primary.clone()
+            (2, tab.primary.clone())
         };
         // A tab card is at most two rows: one title/process and one path.
         // Long titles ellipsize instead of pushing the path to a third row.
         for line in wrap_text(&primary, text_w, 1) {
-            lines.push((2, line));
+            lines.push((primary_kind, line));
         }
         // Keep every card addressable even if a title consists entirely of
         // control characters (or cannot fit in a one-column sidebar).
         if lines.is_empty() {
-            lines.push((2, wrap_text("shell", text_w, 1)[0].clone()));
+            lines.push((primary_kind, wrap_text("shell", text_w, 1)[0].clone()));
         }
 
         if !tab.secondary.is_empty() {
@@ -592,6 +610,21 @@ pub fn draw_sidebar(
         g: 96,
         b: 96,
     };
+    let fg_ready = Color::Rgb {
+        r: 112,
+        g: 184,
+        b: 136,
+    };
+    let fg_working = Color::Rgb {
+        r: 214,
+        g: 172,
+        b: 86,
+    };
+    let fg_blocked = Color::Rgb {
+        r: 220,
+        g: 105,
+        b: 105,
+    };
 
     let cards = build_cards(tabs, inner);
     let footer = sidebar_footer(w, h);
@@ -634,6 +667,9 @@ pub fn draw_sidebar(
             3 if active => fg_sec_active,
             3 | 4 => fg_sec_idle,
             5 => fg_idle,
+            6 => fg_ready,
+            7 => fg_working,
+            8 => fg_blocked,
             _ => fg_idle,
         };
 
@@ -1353,11 +1389,13 @@ mod tests {
             SidebarTab {
                 primary: "one".into(),
                 secondary: String::new(),
+                agent: None,
                 active: true,
             },
             SidebarTab {
                 primary: "two".into(),
                 secondary: String::new(),
+                agent: None,
                 active: false,
             },
         ];
@@ -1374,6 +1412,7 @@ mod tests {
         let long = [SidebarTab {
             primary: "a very long process title".into(),
             secondary: "~/projects/mux".into(),
+            agent: None,
             active: true,
         }];
         let cards = build_cards(&long, 8);
@@ -1388,6 +1427,7 @@ mod tests {
         let tabs = [SidebarTab {
             primary: "shell".into(),
             secondary: "~/projects/mux".into(),
+            agent: None,
             active: true,
         }];
         let mut out = Vec::new();
@@ -1419,6 +1459,7 @@ mod tests {
                 } else {
                     String::new()
                 },
+                agent: None,
                 active: idx == 6,
             })
             .collect();
@@ -1446,5 +1487,23 @@ mod tests {
         let map = draw_sidebar(&mut out, &one_row, &tabs, &mut cache, true).unwrap();
         assert_eq!(map.row_tab, vec![Some(6)]);
         assert!(String::from_utf8_lossy(&out).contains("agent-6"));
+    }
+
+    #[test]
+    fn agent_status_replaces_only_the_primary_card_line() {
+        let tabs = [SidebarTab {
+            primary: "node".into(),
+            secondary: "~/projects/mux".into(),
+            agent: Some(AgentStatus {
+                kind: crate::agent::AgentKind::Codex,
+                state: AgentState::Working,
+            }),
+            active: true,
+        }];
+
+        let cards = build_cards(&tabs, 18);
+        assert_eq!(cards[0].lines.len(), 2);
+        assert_eq!(cards[0].lines[0], (7, "● codex · working".into()));
+        assert_eq!(cards[0].lines[1], (3, "~/projects/mux".into()));
     }
 }

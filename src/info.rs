@@ -3,14 +3,16 @@
 //! Primary line: foreground process or OSC title  
 //! Secondary line: shortened working directory
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+use crate::agent::{self, AgentStatus};
 
 /// Parsed OSC 7 cwd from a stream of PTY bytes (stateful).
 #[derive(Debug, Default)]
 pub struct OscTracker {
     buf: Vec<u8>,
     in_osc: bool,
+    title_revision: u64,
     pub cwd: Option<String>,
     /// Last OSC 0/2 window title. `Some("")` represents an explicit clear,
     /// while `None` means the child has not emitted a title yet.
@@ -18,6 +20,10 @@ pub struct OscTracker {
 }
 
 impl OscTracker {
+    pub fn title_revision(&self) -> u64 {
+        self.title_revision
+    }
+
     pub fn feed(&mut self, bytes: &[u8]) {
         for &b in bytes {
             if !self.in_osc {
@@ -75,6 +81,7 @@ impl OscTracker {
             // OSC 0 sets icon + window title; OSC 2 sets window title.
             b"0" | b"2" => {
                 self.title = Some(sanitize_osc_title(value));
+                self.title_revision = self.title_revision.wrapping_add(1);
             }
             // 7;file://host/path
             b"7" => {
@@ -148,6 +155,7 @@ fn from_hex(c: u8) -> Option<u8> {
 pub struct TabInfo {
     pub primary: String,
     pub secondary: String,
+    pub agent: Option<AgentStatus>,
 }
 
 /// Build cmux-style primary/secondary from known metadata.
@@ -180,7 +188,11 @@ pub fn compose_info(
         .filter(|s| !s.is_empty())
         .unwrap_or_default();
 
-    TabInfo { primary, secondary }
+    TabInfo {
+        primary,
+        secondary,
+        agent: None,
+    }
 }
 
 fn clean_title(s: &str) -> String {
@@ -308,13 +320,15 @@ fn dirs_home() -> Option<String> {
         .and_then(|p| p.to_str().map(|s| s.to_string()))
 }
 
-/// Read cwd + foreground-ish process for a shell PID (Linux /proc).
-pub fn probe_session(pid: u32) -> (Option<String>, Option<String>) {
+/// Read cwd + the terminal's actual foreground process group (Linux /proc).
+pub fn probe_session(pid: u32, foreground_pgrp: Option<u32>) -> (Option<String>, Option<String>) {
     let cwd = std::fs::read_link(format!("/proc/{pid}/cwd"))
         .ok()
         .and_then(|p| p.to_str().map(|s| s.to_string()));
 
-    let process = foreground_process(pid).or_else(|| read_comm(pid));
+    let process = foreground_pgrp
+        .and_then(foreground_process)
+        .or_else(|| read_comm(pid));
     (cwd, process)
 }
 
@@ -328,23 +342,41 @@ fn read_comm(pid: u32) -> Option<String> {
     }
 }
 
-fn read_ppid_comm(pid: u32) -> Option<(u32, String)> {
-    // /proc/pid/stat: pid (comm) state ppid ...
+#[derive(Debug, Clone)]
+struct ProcEntry {
+    pid: u32,
+    pgrp: u32,
+    comm: String,
+    argv: Vec<String>,
+}
+
+fn read_proc_stat(pid: u32) -> Option<(u32, String)> {
+    // /proc/pid/stat: pid (comm) state ppid pgrp ...
     let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
     let rparen = stat.rfind(')')?;
     let after = stat[rparen + 2..].split_whitespace().collect::<Vec<_>>();
-    // after[0] = state, after[1] = ppid
-    let ppid: u32 = after.get(1)?.parse().ok()?;
+    // after[0] = state, after[1] = ppid, after[2] = pgrp
+    let pgrp: u32 = after.get(2)?.parse().ok()?;
     let comm_start = stat.find('(')? + 1;
     let comm = stat[comm_start..rparen].to_string();
-    Some((ppid, comm))
+    Some((pgrp, comm))
 }
 
-/// Prefer the deepest interesting child of the shell (agent, vim, …).
-fn foreground_process(shell_pid: u32) -> Option<String> {
-    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
-    let mut comms: HashMap<u32, String> = HashMap::new();
+fn read_cmdline(pid: u32) -> Vec<String> {
+    std::fs::read(format!("/proc/{pid}/cmdline"))
+        .ok()
+        .map(|bytes| {
+            bytes
+                .split(|byte| *byte == 0)
+                .filter(|part| !part.is_empty())
+                .map(|part| String::from_utf8_lossy(part).into_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
 
+fn foreground_process(foreground_pgrp: u32) -> Option<String> {
+    let mut processes = Vec::new();
     let Ok(entries) = std::fs::read_dir("/proc") else {
         return None;
     };
@@ -356,41 +388,47 @@ fn foreground_process(shell_pid: u32) -> Option<String> {
         let Ok(pid) = pid_str.parse::<u32>() else {
             continue;
         };
-        if let Some((ppid, comm)) = read_ppid_comm(pid) {
-            children.entry(ppid).or_default().push(pid);
-            comms.insert(pid, comm);
+        if let Some((pgrp, comm)) = read_proc_stat(pid) {
+            if pgrp != foreground_pgrp {
+                continue;
+            }
+            processes.push(ProcEntry {
+                pid,
+                pgrp,
+                comm,
+                argv: read_cmdline(pid),
+            });
         }
+    }
+    select_group_process(&processes, foreground_pgrp)
+}
+
+fn select_group_process(processes: &[ProcEntry], foreground_pgrp: u32) -> Option<String> {
+    // Prefer an identified agent in the foreground group, with the process
+    // group leader winning ties. Background jobs never enter this candidate
+    // set, regardless of PID or spawn time.
+    if let Some((_, kind)) = processes
+        .iter()
+        .filter(|process| process.pgrp == foreground_pgrp)
+        .filter_map(|process| {
+            agent::identify_process(&process.comm, &process.argv).map(|kind| (process, kind))
+        })
+        .min_by_key(|(process, _)| (process.pid != foreground_pgrp, process.pid))
+    {
+        return Some(kind.label().to_string());
     }
 
-    // BFS from shell; keep the "best" non-shell leaf-ish process.
-    let mut best: Option<(u32, String)> = None;
-    let mut stack = vec![shell_pid];
-    let mut seen = std::collections::HashSet::new();
-    while let Some(pid) = stack.pop() {
-        if !seen.insert(pid) {
-            continue;
-        }
-        if pid != shell_pid {
-            if let Some(c) = comms.get(&pid) {
-                if !is_shell(c) && c != "mux" {
-                    // Prefer higher pid (usually more recent / fg).
-                    let replace = match &best {
-                        None => true,
-                        Some((bp, _)) => pid >= *bp,
-                    };
-                    if replace {
-                        best = Some((pid, c.clone()));
-                    }
-                }
-            }
-        }
-        if let Some(chs) = children.get(&pid) {
-            for &c in chs {
-                stack.push(c);
-            }
-        }
-    }
-    best.map(|(_, c)| c)
+    processes
+        .iter()
+        .filter(|process| process.pgrp == foreground_pgrp)
+        .min_by_key(|process| {
+            (
+                process.pid != foreground_pgrp,
+                is_shell(&process.comm) || process.comm == "mux",
+                process.pid,
+            )
+        })
+        .map(|process| process.comm.clone())
 }
 
 #[cfg(test)]
@@ -450,6 +488,50 @@ mod tests {
         let i = compose_info("", Some("/home/u/code"), Some("nvim"), false);
         assert_eq!(i.primary, "nvim");
         assert!(i.secondary.contains('~') || i.secondary.contains("code"));
+    }
+
+    #[test]
+    fn foreground_group_excludes_newer_background_agent() {
+        let processes = [
+            ProcEntry {
+                pid: 100,
+                pgrp: 100,
+                comm: "codex".into(),
+                argv: vec!["codex".into()],
+            },
+            ProcEntry {
+                pid: 999,
+                pgrp: 999,
+                comm: "node".into(),
+                argv: vec![
+                    "node".into(),
+                    "/opt/node_modules/@anthropic-ai/claude-code/cli.js".into(),
+                ],
+            },
+        ];
+
+        assert_eq!(
+            select_group_process(&processes, 100).as_deref(),
+            Some("codex")
+        );
+        assert_eq!(
+            select_group_process(&processes, 999).as_deref(),
+            Some("claude")
+        );
+    }
+
+    #[test]
+    fn foreground_tmux_is_not_misidentified_as_an_agent() {
+        let processes = [ProcEntry {
+            pid: 42,
+            pgrp: 42,
+            comm: "tmux".into(),
+            argv: vec!["tmux".into(), "codex".into()],
+        }];
+        assert_eq!(
+            select_group_process(&processes, 42).as_deref(),
+            Some("tmux")
+        );
     }
 
     #[test]
