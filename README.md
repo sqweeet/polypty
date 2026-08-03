@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/sqweeet/mux/actions/workflows/ci.yml/badge.svg)](https://github.com/sqweeet/mux/actions/workflows/ci.yml)
 
+<img width="1013" height="713" alt="image" src="https://github.com/user-attachments/assets/bddc9fe7-1615-44be-b068-cc4ef5ec2f16" />
+
 Минимальный terminal multiplexer на Rust для Linux/Unix: вкладки в сайдбаре,
 вложенные split panes и отдельный PTY для каждой pane. Область терминала
 рендерится напрямую из VT-сетки, поэтому полноэкранные TUI — редакторы,
