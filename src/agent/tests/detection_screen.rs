@@ -38,6 +38,23 @@ fn visible_agent_signals_override_recent_activity() {
 }
 
 #[test]
+fn claude_access_request_is_blocked() {
+    let permission = parser_with(
+        "Claude needs permission to use Bash\nDo you want to proceed?\n❯ 1. Yes\n  2. No",
+    );
+    assert_eq!(
+        detect(
+            AgentKind::Claude,
+            &permission,
+            "✳ Claude",
+            AgentState::Ready,
+            Duration::MAX,
+        ),
+        AgentState::Blocked
+    );
+}
+
+#[test]
 fn structured_working_row_outweighs_a_visible_composer() {
     let parser = parser_with("• Working (esc to interrupt)\n› editing a follow-up");
     assert_eq!(

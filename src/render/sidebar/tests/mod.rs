@@ -7,7 +7,7 @@ use crate::agent::{AgentKind, AgentState, AgentStatus};
 use crate::render::Layout;
 
 use super::animation::SidebarAnimation;
-use super::badge::ready_badge_spans;
+use super::badge::{blocked_badge_spans, ready_badge_spans};
 use super::card::build_cards;
 use super::footer::{configured_footer, sidebar_footer, SidebarShortcuts};
 use super::glint::{sidebar_paint_spans, working_glint_bg, GlintRow};

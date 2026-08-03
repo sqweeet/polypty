@@ -79,7 +79,7 @@ fn unix_socket_exchanges_a_request_and_cleans_up() {
 
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let path = std::env::temp_dir().join(format!(
-        "mux-control-test-{}-{}.sock",
+        "polypty-control-test-{}-{}.sock",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ));

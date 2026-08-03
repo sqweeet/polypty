@@ -1,11 +1,11 @@
 use super::*;
 
 #[test]
-fn agent_status_keeps_working_label_minimal() {
+fn agent_status_keeps_labels_minimal() {
     let mut tabs = [SidebarTab {
         key: 1,
         primary: "node".into(),
-        secondary: "~/projects/mux".into(),
+        secondary: "~/projects/polypty".into(),
         agent: Some(AgentStatus::single(AgentKind::Codex, AgentState::Working)),
         glint_frame: Some(GlintFrame(10)),
         active: true,
@@ -14,15 +14,12 @@ fn agent_status_keeps_working_label_minimal() {
     let cards = build_cards(&tabs, 18);
     assert_eq!(cards[0].lines.len(), 2);
     assert_eq!(cards[0].lines[0], (7, "codex".into()));
-    assert_eq!(cards[0].lines[1], (3, "~/projects/mux".into()));
+    assert_eq!(cards[0].lines[1], (3, "~/projects/polypty".into()));
 
     tabs[0].agent.as_mut().unwrap().state = AgentState::Ready;
     assert_eq!(build_cards(&tabs, 18)[0].lines[0], (6, "codex".into()));
     tabs[0].agent.as_mut().unwrap().state = AgentState::Blocked;
-    assert_eq!(
-        build_cards(&tabs, 18)[0].lines[0],
-        (8, "codex · blocked".into())
-    );
+    assert_eq!(build_cards(&tabs, 18)[0].lines[0], (8, "codex".into()));
 }
 
 #[test]
@@ -30,7 +27,7 @@ fn agent_status_labels_split_panes_compactly() {
     let mut tabs = [SidebarTab {
         key: 1,
         primary: "node".into(),
-        secondary: "~/projects/mux".into(),
+        secondary: "~/projects/polypty".into(),
         agent: Some(AgentStatus {
             kind: AgentKind::Codex,
             state: AgentState::Working,
@@ -45,25 +42,21 @@ fn agent_status_labels_split_panes_compactly() {
     tabs[0].agent.as_mut().unwrap().state = AgentState::Ready;
     assert_eq!(build_cards(&tabs, 18)[0].lines[0], (6, "codex ×2".into()));
     tabs[0].agent.as_mut().unwrap().state = AgentState::Blocked;
-    assert_eq!(
-        build_cards(&tabs, 18)[0].lines[0],
-        (8, "codex ×2 · blocked".into())
-    );
+    assert_eq!(build_cards(&tabs, 18)[0].lines[0], (8, "codex ×2".into()));
 
     let status = tabs[0].agent.as_mut().unwrap();
+    status.state = AgentState::Working;
+    status.panes = 3;
+    assert_eq!(build_cards(&tabs, 18)[0].lines[0], (7, "codex ×3".into()));
+
+    let status = tabs[0].agent.as_mut().unwrap();
+    status.panes = 2;
     status.kind = AgentKind::Claude;
     status.state = AgentState::Working;
     status.mixed_kinds = true;
     assert_eq!(build_cards(&tabs, 18)[0].lines[0], (7, "claude+1".into()));
     tabs[0].agent.as_mut().unwrap().state = AgentState::Blocked;
-    assert_eq!(
-        build_cards(&tabs, 18)[0].lines[0],
-        (8, "claude+1 · blocked".into())
-    );
-    assert_eq!(
-        build_cards(&tabs, 12)[0].lines[0],
-        (8, "c… · blocked".into())
-    );
-    assert_eq!(build_cards(&tabs, 8)[0].lines[0], (8, "blocked".into()));
-    assert_eq!(build_cards(&tabs, 5)[0].lines[0], (8, "!".into()));
+    assert_eq!(build_cards(&tabs, 18)[0].lines[0], (8, "claude+1".into()));
+    assert_eq!(build_cards(&tabs, 8)[0].lines[0], (8, "claude+1".into()));
+    assert_eq!(build_cards(&tabs, 5)[0].lines[0], (8, "clau…".into()));
 }

@@ -1,8 +1,8 @@
-# CLI-сессии mux
+# CLI-сессии polypty
 
-Интерактивный процесс `mux` владеет PTY и одновременно обслуживает приватный
+Интерактивный процесс `polypty` владеет PTY и одновременно обслуживает приватный
 Unix socket. Любой локальный процесс того же пользователя может вызвать
-`mux <command>`: короткоживущий CLI-клиент отправит запрос живому UI и выведет
+`polypty <command>`: короткоживущий CLI-клиент отправит запрос живому UI и выведет
 ответ. Команды можно безопасно запускать из Codex, Claude Code, Pi или shell.
 
 ## Команды
@@ -19,7 +19,7 @@ Unix socket. Любой локальный процесс того же поль
 | `ping` | — | проверка доступности event loop |
 
 Для всех control-команд доступен `--json`. Полная встроенная справка:
-`mux --help`.
+`polypty --help`.
 
 ## Targets
 
@@ -28,9 +28,9 @@ Unix socket. Любой локальный процесс того же поль
 `-p %21`. Примеры:
 
 ```bash
-mux capture-pane --tab @17 --pane %21
-mux send-keys -t 2 -p 21 --enter -- 'git status --short'
-mux kill-window -t @17
+polypty capture-pane --tab @17 --pane %21
+polypty send-keys -t 2 -p 21 --enter -- 'git status --short'
+polypty kill-window -t @17
 ```
 
 `capture-pane` возвращает текущий экран без scrollback, убирает правый padding
@@ -40,19 +40,19 @@ mux kill-window -t @17
 
 ## Контекст внутри pane
 
-Каждая shell наследует `MUX_SESSION`, `MUX_TAB`, `MUX_PANE` и `MUX_SOCKET`.
+Каждая shell наследует `POLYPTY_SESSION`, `POLYPTY_TAB`, `POLYPTY_PANE` и `POLYPTY_SOCKET`.
 Поэтому `capture-pane` и `send-keys` без targets из pane адресуют именно её,
 даже если пользователь успел переключить UI на другую вкладку. Внешний клиент
 без этих переменных работает с активной pane.
 
-Путь сокета выбирается из `MUX_SOCKET`, затем
-`$XDG_RUNTIME_DIR/mux.control.sock`, иначе `/tmp/mux-UID.sock`. Сервер создаёт
+Путь сокета выбирается из `POLYPTY_SOCKET`, затем
+`$XDG_RUNTIME_DIR/polypty.control.sock`, иначе `/tmp/polypty-UID.sock`. Сервер создаёт
 socket с mode `0600`, не заменяет чужой или не-socket path и удаляет свой path
 при завершении.
 
 ## Граница текущей версии
 
-Это attached session server: он доступен, пока жив интерактивный процесс mux.
+Это attached session server: он доступен, пока жив интерактивный процесс polypty.
 Закрытие host-терминала или сигнал завершения останавливает дочерние PTY.
 Полноценный daemon с detach/reattach потребует переноса владения PTY из UI в
 отдельный процесс и является следующим отдельным этапом.

@@ -6,7 +6,7 @@ fn sidebar_footer_is_anchored_and_not_clickable() {
     let tabs = [SidebarTab {
         key: 1,
         primary: "shell".into(),
-        secondary: "~/projects/mux".into(),
+        secondary: "~/projects/polypty".into(),
         agent: None,
         glint_frame: None,
         active: true,
@@ -22,7 +22,7 @@ fn sidebar_footer_is_anchored_and_not_clickable() {
     assert!(map.row_tab[0].is_some());
     assert!(map.row_tab[footer_start..].iter().all(Option::is_none));
     assert!(rendered.contains(" shell"));
-    assert!(rendered.contains(" ~/projects/mux"));
+    assert!(rendered.contains(" ~/projects/polypt"));
     assert!(!rendered.contains("Tabs"));
     assert!(!rendered.contains("Shortcuts"));
     assert!(rendered.contains("Alt+t new tab"));
@@ -43,7 +43,7 @@ fn sidebar_viewport_keeps_active_tab_visible_when_shrinking() {
             key: index as u64,
             primary: format!("agent-{index}"),
             secondary: if index == 6 {
-                "~/projects/mux".to_string()
+                "~/projects/polypty".to_string()
             } else {
                 String::new()
             },

@@ -1,4 +1,4 @@
-/// Geometry of the mux chrome + terminal pane.
+/// Geometry of the polypty chrome + terminal pane.
 #[derive(Debug, Clone, Copy)]
 pub struct Layout {
     #[allow(dead_code)]

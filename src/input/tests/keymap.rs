@@ -3,7 +3,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use super::super::{map_key, Action, Keymap};
 
 #[test]
-fn mux_shortcuts_are_mapped() {
+fn polypty_shortcuts_are_mapped() {
     let alt = KeyModifiers::ALT;
     let cases = [
         ('t', Action::NewTab),

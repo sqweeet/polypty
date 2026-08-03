@@ -1,14 +1,12 @@
 use std::time::Instant;
 
-use unicode_width::UnicodeWidthStr;
-
 use crate::agent::{AgentState, AgentStatus};
 
 use super::model::{SidebarTab, TabCard};
 use super::tab_motion::{TabMotion, TabVisual};
 use super::text::{pad_fit, wrap_text};
 
-fn agent_primary_label(status: AgentStatus, width: usize) -> String {
+fn agent_primary_label(status: AgentStatus) -> String {
     let count = status.panes.max(1);
     let mut identity = status.kind.label().to_string();
     if count > 1 {
@@ -19,25 +17,7 @@ fn agent_primary_label(status: AgentStatus, width: usize) -> String {
         };
         identity.push_str(&suffix);
     }
-    if status.state != AgentState::Blocked {
-        return identity;
-    }
-
-    const BLOCKED: &str = "blocked";
-    const SUFFIX: &str = " · blocked";
-    if width < UnicodeWidthStr::width(BLOCKED) {
-        return "!".to_string();
-    }
-    if width <= UnicodeWidthStr::width(SUFFIX) {
-        return BLOCKED.to_string();
-    }
-
-    let identity_width = width - UnicodeWidthStr::width(SUFFIX);
-    let identity = wrap_text(&identity, identity_width, 1)
-        .into_iter()
-        .next()
-        .unwrap_or_default();
-    format!("{identity}{SUFFIX}")
+    identity
 }
 
 #[cfg(test)]
@@ -65,7 +45,7 @@ fn build_cards_with(
     tabs.iter()
         .enumerate()
         .map(|(tab_idx, tab)| {
-            let (primary_kind, primary) = primary_line(tab, text_width);
+            let (primary_kind, primary) = primary_line(tab);
             let mut lines: Vec<_> = wrap_text(&primary, text_width, 1)
                 .into_iter()
                 .map(|line| (primary_kind, line))
@@ -93,14 +73,14 @@ fn build_cards_with(
         .collect()
 }
 
-fn primary_line(tab: &SidebarTab, width: usize) -> (u8, String) {
+fn primary_line(tab: &SidebarTab) -> (u8, String) {
     if let Some(status) = tab.agent {
         let kind = match status.state {
             AgentState::Ready => 6,
             AgentState::Working => 7,
             AgentState::Blocked => 8,
         };
-        (kind, agent_primary_label(status, width))
+        (kind, agent_primary_label(status))
     } else if tab.primary.is_empty() {
         (2, "shell".to_string())
     } else {

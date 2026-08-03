@@ -24,7 +24,7 @@ pub(super) fn select_group_process(
         .min_by_key(|process| {
             (
                 process.pid != foreground_pgrp,
-                is_shell(&process.comm) || process.comm == "mux",
+                is_shell(&process.comm) || process.comm == "polypty",
                 process.pid,
             )
         })

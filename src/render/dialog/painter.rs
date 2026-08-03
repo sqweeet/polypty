@@ -41,7 +41,14 @@ pub(super) fn draw(
         )?;
     }
     if geometry.height >= 3 {
-        paint_centered(out, geometry, geometry.y + 1, "Exit mux?", true, opacity)?;
+        paint_centered(
+            out,
+            geometry,
+            geometry.y + 1,
+            "Exit polypty?",
+            true,
+            opacity,
+        )?;
     }
     if geometry.height >= 5 {
         paint_centered(

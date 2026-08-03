@@ -1,6 +1,6 @@
-# mux
+# polypty
 
-[![CI](https://github.com/sqweeet/mux/actions/workflows/ci.yml/badge.svg)](https://github.com/sqweeet/mux/actions/workflows/ci.yml)
+[![CI](https://github.com/sqweeet/polypty/actions/workflows/ci.yml/badge.svg)](https://github.com/sqweeet/polypty/actions/workflows/ci.yml)
 
 <img width="1013" height="713" alt="image" src="https://github.com/user-attachments/assets/bddc9fe7-1615-44be-b068-cc4ef5ec2f16" />
 
@@ -10,6 +10,9 @@
 мониторы и интерфейсы агентов — сохраняют цвета, wide/combining characters,
 alternate screen, mouse tracking и настоящий курсор.
 
+Название `polypty` складывается из `poly` + `PTY`: несколько псевдотерминалов
+собраны в одном многопанельном рабочем пространстве.
+
 ## Запуск
 
 Из корня репозитория:
@@ -18,16 +21,16 @@ alternate screen, mouse tracking и настоящий курсор.
 cargo run --release
 ```
 
-Либо установите бинарник и запускайте его как `mux`:
+Либо установите бинарник из crates.io и запускайте его как `polypty`:
 
 ```bash
-cargo install --path .
-mux
+cargo install polypty
+polypty
 ```
 
 Одновременно для одного пользователя работает только один интерактивный
-экземпляр `mux`. Повторный запуск без команды завершится с понятной ошибкой,
-но `mux <command>` работает как control-клиент уже запущенного экземпляра.
+экземпляр `polypty`. Повторный запуск без команды завершится с понятной ошибкой,
+но `polypty <command>` работает как control-клиент уже запущенного экземпляра.
 Instance-lock автоматически освобождается при выходе или аварийном завершении.
 
 Нужен актуальный Rust toolchain и терминал с поддержкой ANSI/alternate screen.
@@ -36,13 +39,13 @@ Instance-lock автоматически освобождается при вы�
 - Wayland: `wl-paste` из пакета `wl-clipboard`;
 - X11: `xclip` или `xsel`.
 
-Без них сам mux работает, но `Ctrl+Shift+V` и fallback-вставка средней кнопкой
+Без них сам polypty работает, но `Ctrl+Shift+V` и fallback-вставка средней кнопкой
 не смогут прочитать системный clipboard/PRIMARY selection.
 
 ## Конфигурация
 
-Настройки читаются из `~/.config/mux/config.toml` (или
-`$XDG_CONFIG_HOME/mux/config.toml`). Можно менять бинды, начальную ширину и
+Настройки читаются из `~/.config/polypty/config.toml` (или
+`$XDG_CONFIG_HOME/polypty/config.toml`). Можно менять бинды, начальную ширину и
 видимость сайдбара, а также shell для новых pane. Неуказанные значения сохраняют
 встроенные defaults; подсказки в сайдбаре следуют настроенным биндам.
 
@@ -64,24 +67,24 @@ close-pane = []
 
 ## CLI и агентские сессии
 
-Работающий mux поднимает приватный Unix control socket. Поэтому человек или
+Работающий polypty поднимает приватный Unix control socket. Поэтому человек или
 coding agent из любой pane может управлять вкладками и читать их текущий экран,
 не перехватывая интерактивный терминал:
 
 ```bash
-mux list-sessions
-mux list-tabs --json
-mux new-window
-mux capture-pane -t 2
-mux send-keys -t 2 --enter -- 'cargo test'
-mux select-window 2
+polypty list-sessions
+polypty list-tabs --json
+polypty new-window
+polypty capture-pane -t 2
+polypty send-keys -t 2 --enter -- 'cargo test'
+polypty select-window 2
 ```
 
 Доступны команды `list-sessions` (`ls`), `list-tabs` (`list-windows`),
 `new-tab` (`new-window`), `select-tab`, `close-tab`, `capture-pane`,
 `send-keys` и `ping`. Вкладка адресуется номером, `active` или стабильным
 `@ID`; pane — числом или `%ID`. Флаг `--json` даёт стабильный машинный ответ.
-Без `-t`/`-p` команда из pane использует её `MUX_TAB`/`MUX_PANE`, а внешний
+Без `-t`/`-p` команда из pane использует её `POLYPTY_TAB`/`POLYPTY_PANE`, а внешний
 клиент — активную pane интерфейса.
 
 Control server живёт вместе с открытым интерактивным UI. Закрытие host-терминала
@@ -107,7 +110,7 @@ Control server живёт вместе с открытым интерактив�
 | `Alt+=`, `Alt++` | расширить сайдбар |
 | `Alt+-`, `Alt+_` | сузить сайдбар |
 | `Ctrl+Shift+V` | вставить системный clipboard в активную pane |
-| `Alt+q`, `Ctrl+Alt+q` | выйти из mux |
+| `Alt+q`, `Ctrl+Alt+q` | выйти из polypty |
 
 Остальные клавиши кодируются как terminal sequences и передаются активному
 дочернему PTY. Вставка учитывает bracketed-paste mode дочернего приложения.
@@ -131,7 +134,7 @@ Control server живёт вместе с открытым интерактив�
 - Click по pane фокусирует её. Если дочерний TUI включил mouse tracking,
   события передаются ему в локальных координатах pane.
 - Middle-click внутри pane передаётся TUI с mouse tracking. Если tracking не
-  включён, mux вставляет PRIMARY selection (и использует обычный clipboard как
+  включён, polypty вставляет PRIMARY selection (и использует обычный clipboard как
   fallback).
 - `Shift` оставляет выделение текста host-терминалу.
 
@@ -143,23 +146,23 @@ VT-состояние и курсор. Сайдбар показывает пр�
 каждой вкладки и сокращённый текущий путь. Активная карточка остаётся видимой
 даже при низком окне.
 
-При слишком маленьком viewport mux временно показывает только ветку с активной
+При слишком маленьком viewport polypty временно показывает только ветку с активной
 pane, не сжимая скрытые TUI до разрушительного размера `1x1`. После увеличения
 окна дерево splits и рабочие размеры pane восстанавливаются.
 
 ## Статусы coding agents
 
-На Linux mux распознаёт coding agent в foreground process group каждой pane и
+На Linux polypty распознаёт coding agent в foreground process group каждой pane и
 заменяет первую строку карточки компактным живым статусом:
 
 | Вид | Состояние |
 |---|---|
 | `codex` + мягкий белый glint обеих строк | агент выполняет задачу |
-| `codex · blocked` | агент ждёт подтверждения или ответа |
+| `codex` + жёлтый `!` справа | агент ждёт подтверждения или ответа |
 | `codex` + маленький зелёный `✓` справа | агент готов к следующей команде |
 
-Во время работы один широкий нейтрально-белый блик плавно проходит через фон
-обеих строк как через цельную карточку; текст, путь и геометрия не анимируются.
+Во время работы один широкий мягкий нейтрально-белый блик плавно проходит по фону
+обеих строк без наклона; текст, путь и геометрия не анимируются.
 После примерно четырёхсекундного прохода следует спокойная двухсекундная пауза.
 У каждой карточки собственная фаза от момента перехода в `working`, поэтому
 агенты, запущенные в разное время, не двигаются строем. В состоянии готовности
@@ -167,7 +170,7 @@ pane, не сжимая скрытые TUI до разрушительного �
 с одинаковым агентом, карточка объединяет их как `codex ×2`; смешанный набор
 показывается через главный агент и число остальных, например `claude+1`.
 Наверх поднимается самый важный статус: `blocked` → `working` → `ready`, включая
-неактивные pane. `blocked` остаётся красным и явным.
+неактивные pane. В состоянии `blocked` справа появляется компактный жёлтый `!`.
 
 Идентификация поддерживает Codex, Claude Code, OpenCode, Gemini CLI, Cursor
 Agent, GitHub Copilot, Kimi, Amp, Pi, Devin, Droid, Kiro и Grok. Для Codex,
@@ -180,26 +183,26 @@ Echo обычного ввода, пустой Enter, terminal-control traffic �
 resize не считаются работой. Submit, live footer и свежий OSC title учитываются
 отдельно; evidence полностью сбрасывается при смене foreground-процесса. Поэтому
 фоновый helper, введённые пользователем слова-маркеры или старая approval-фраза
-из scrollback не должны запускать glint. Это только индикация — mux никогда не
+из scrollback не должны запускать glint. Это только индикация — polypty никогда не
 отвечает агенту автоматически. Подход к карточкам и приоритетам вдохновлён
 [Herdr](https://github.com/herdrdev/herdr).
 
 ## Терминальная совместимость и устойчивость
 
-Каждый дочерний процесс получает terminal capabilities и контекст mux:
+Каждый дочерний процесс получает terminal capabilities и контекст polypty:
 
 ```text
 TERM=xterm-256color
 COLORTERM=truecolor
-MUX=1
-MUX_SESSION=main
-MUX_TAB=<stable tab id>
-MUX_PANE=<stable pane id>
-MUX_SOCKET=<absolute control socket path>
+POLYPTY=1
+POLYPTY_SESSION=main
+POLYPTY_TAB=<stable tab id>
+POLYPTY_PANE=<stable pane id>
+POLYPTY_SOCKET=<absolute control socket path>
 ```
 
 Они не наследуются от host-терминала: дочерние TUI видят только возможности,
-которые mux действительно эмулирует и кодирует.
+которые polypty действительно эмулирует и кодирует.
 
 Путь вывода рассчитан на долго работающие и активно печатающие процессы:
 
@@ -209,21 +212,21 @@ MUX_SOCKET=<absolute control socket path>
   дочернего процесса вместо неограниченного роста памяти;
 - запись клавиш и terminal-query replies идёт через отдельную ограниченную
   очередь каждой pane: дочерний процесс, переставший читать stdin, не может
-  заморозить остальные вкладки, resize или выход из mux;
+  заморозить остальные вкладки, resize или выход из polypty;
 - поток вывода обрабатывается с byte budget и собирается в цельные кадры, чтобы
   вложенные TUI не мерцали промежуточными состояниями;
 - рендер перерисовывает только изменившиеся ячейки и строки сайдбара.
 
-Во время drag-resize mux сразу следует последней геометрии host-терминала, но
+Во время drag-resize polypty сразу следует последней геометрии host-терминала, но
 объединяет пачку промежуточных событий в один финальный resize дочерних PTY.
 После каждого наблюдаемого resize устаревшие render caches инвалидируются, а
 после финального `SIGWINCH` даётся короткое время на новый кадр TUI. Это не даёт
 табам, сайдбару и split-разделителям остаться в геометрии промежуточного окна.
 
-При выходе, а на Unix также при `SIGTERM`, `SIGHUP`, `SIGINT` и `SIGQUIT`, mux
+При выходе, а на Unix также при `SIGTERM`, `SIGHUP`, `SIGINT` и `SIGQUIT`, polypty
 завершает дочерние процессы и восстанавливает raw mode, alternate screen,
 mouse capture, bracketed paste, курсор и autowrap host-терминала.
-Если окно терминала исчезло без `SIGHUP`, mux дополнительно обнаруживает hangup
+Если окно терминала исчезло без `SIGHUP`, polypty дополнительно обнаруживает hangup
 или потерю host TTY и сам завершает PTY, control socket и instance-lock.
 
 ## Структура кода

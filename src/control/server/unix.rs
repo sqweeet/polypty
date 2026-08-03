@@ -34,9 +34,9 @@ impl ControlServer {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = Arc::clone(&stop);
         let worker = thread::Builder::new()
-            .name("mux-control".into())
+            .name("polypty-control".into())
             .spawn(move || serve(listener, send, worker_stop))
-            .context("spawn mux control server")?;
+            .context("spawn polypty control server")?;
         Ok(Self {
             path,
             requests,
@@ -81,10 +81,10 @@ fn handle_connection(mut stream: UnixStream, requests: &mpsc::Sender<PendingRequ
         let (reply, receive) = mpsc::sync_channel(1);
         requests
             .send(PendingRequest { request, reply })
-            .map_err(|_| "mux event loop stopped".to_string())?;
+            .map_err(|_| "polypty event loop stopped".to_string())?;
         receive
             .recv_timeout(Duration::from_secs(3))
-            .map_err(|_| "mux event loop did not respond".to_string())
+            .map_err(|_| "polypty event loop did not respond".to_string())
     });
     let response = response.unwrap_or_else(ControlResponse::error);
     if let Ok(mut json) = serde_json::to_vec(&response) {

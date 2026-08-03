@@ -35,7 +35,7 @@ impl App {
             Some(target) => self.resolve_tab(target)?,
             None => self.book.active_index(),
         };
-        let workspace = self.book.get(index).context("mux has no active tab")?;
+        let workspace = self.book.get(index).context("polypty has no active tab")?;
         let pane = pane.unwrap_or_else(|| workspace.active_pane_id());
         if !workspace.pane_ids().contains(&pane) {
             bail!("pane %{pane} does not belong to tab {}", index + 1);

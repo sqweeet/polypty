@@ -1,4 +1,4 @@
-# mux improvement journal
+# polypty improvement journal
 
 ## 2026-08-03 — Round 1: baseline and failure inventory
 
@@ -87,7 +87,7 @@
 - Debug and release test suites: 47 passed, 0 failed.
 - Strict `cargo clippy --all-targets --all-features -- -D warnings`: passed.
 - `cargo fmt -- --check`: passed; `cargo tree -d`: empty.
-- Neovim 0.12.4 starts inside mux without E1568, renders its alternate-screen
+- Neovim 0.12.4 starts inside polypty without E1568, renders its alternate-screen
   RGB frame, and redraws after `42x8 -> 160x45 -> 55x12 -> 120x35`.
 - Eight live workspaces keep the active sidebar card visible at heights 5 and
   1; nested vertical/horizontal panes accept input after a `25x2 -> 140x40`
@@ -121,7 +121,7 @@
 
 - Debug and release suites: 50 passed, 0 failed; strict clippy and rustfmt are
   clean; `cargo tree -d` remains empty.
-- A raw/no-echo child emitted 100,000 OSC 11 queries and never read stdin. mux
+- A raw/no-echo child emitted 100,000 OSC 11 queries and never read stdin. polypty
   still opened another tab and `Alt+q` exited the isolated session in 117 ms.
 - Sending `SIGTERM` during the same adversarial flood exited in 73 ms; tmux
   reported `alternate_on=0`, `mouse_any_flag=0`, and `mouse_sgr_flag=0`.
@@ -159,7 +159,7 @@
 - Foreground-group tests prove a newer background agent cannot replace the
   foreground Codex; runtime payload and `tmux` false positives are covered.
 - A live tmux-driven PTY check observed `● codex · working`,
-  `● codex · blocked`, and `○ codex · ready` in mux's real sidebar.
+  `● codex · blocked`, and `○ codex · ready` in polypty's real sidebar.
 
 ## 2026-08-03 — Round 6: restrained working glint
 
@@ -328,7 +328,7 @@
 ### Implemented
 
 - Converted the binary-only crate into a library with a six-line executable and
-  a `MuxRuntime` composition root. Host-terminal RAII, signals, resize watching,
+  a `PolyptyRuntime` composition root. Host-terminal RAII, signals, resize watching,
   and the event loop now live in isolated runtime modules.
 - Reduced `App` to composed `WorkspaceBook`, `Viewport`, `FrameScheduler`,
   `Presenter`, `Clipboard`, and `SessionFactory` objects. Input, polling, resize,

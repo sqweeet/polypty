@@ -6,7 +6,7 @@ fn working_glint_covers_both_rows_of_the_card() {
     let mut tabs = [SidebarTab {
         key: 1,
         primary: "node".into(),
-        secondary: "~/projects/mux".into(),
+        secondary: "~/projects/polypty".into(),
         agent: Some(AgentStatus::single(AgentKind::Codex, AgentState::Working)),
         glint_frame: Some(GlintFrame(10)),
         active: true,
@@ -62,7 +62,7 @@ fn narrow_working_card_is_static_and_does_not_schedule_animation() {
     let tabs = [SidebarTab {
         key: 1,
         primary: "codex".into(),
-        secondary: "~/mux".into(),
+        secondary: "~/polypty".into(),
         agent: Some(AgentStatus::single(AgentKind::Codex, AgentState::Working)),
         glint_frame: Some(GlintFrame(20)),
         active: true,

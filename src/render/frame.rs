@@ -19,7 +19,7 @@ pub fn clear(out: &mut impl Write) -> Result<()> {
     Ok(())
 }
 
-/// Preserve colors emitted by child terminals even when mux itself inherits
+/// Preserve colors emitted by child terminals even when polypty itself inherits
 /// `NO_COLOR`.
 pub fn enable_color_passthrough() {
     crossterm::style::Colored::set_ansi_color_disabled(false);

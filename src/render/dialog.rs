@@ -108,7 +108,7 @@ mod tests {
         )
         .unwrap();
         let frame = String::from_utf8_lossy(&output);
-        assert!(frame.contains("Exit mux?"));
+        assert!(frame.contains("Exit polypty?"));
         assert!(frame.contains("Cancel"));
         assert!(frame.contains("Exit"));
     }

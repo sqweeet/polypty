@@ -28,19 +28,28 @@ impl<'a> AgentDetector<'a> {
     }
 
     fn detect(self) -> AgentState {
-        if let Some(state) = state_from_title(self.kind, self.title) {
-            return state;
+        let title_state = state_from_title(self.kind, self.title);
+        if title_state == Some(AgentState::Blocked) {
+            return AgentState::Blocked;
         }
         if matches!(
             self.observation.interaction,
             AgentInteraction::Resizing | AgentInteraction::Editing
         ) {
-            return self.observation.previous;
+            return title_state.unwrap_or(self.observation.previous);
         }
 
         let activity_is_recent = self.observation.quiet_for <= ACTIVITY_WINDOW;
         let evidence = ScreenEvidence::capture(self.kind, self.screen);
         let screen_state = self.reduce_screen(&evidence, activity_is_recent);
+        // A permission menu can retain Claude's last ready/working title. The
+        // visible request is newer and must still surface as action required.
+        if screen_state == Some(AgentState::Blocked) {
+            return AgentState::Blocked;
+        }
+        if let Some(state) = title_state {
+            return state;
+        }
 
         match self.observation.interaction {
             AgentInteraction::SubmitPending => screen_state.unwrap_or(self.observation.previous),

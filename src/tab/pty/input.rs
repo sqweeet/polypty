@@ -33,7 +33,7 @@ impl PtyInputChannel {
         let writer_flag = Arc::clone(&query_in_flight);
         let (tx, rx) = mpsc::sync_channel(INPUT_QUEUE_MESSAGES);
         let handle = thread::Builder::new()
-            .name(format!("mux-pty-write-{id}"))
+            .name(format!("polypty-pty-write-{id}"))
             .spawn(move || writer_loop(writer, rx, writer_flag))
             .context("spawn pty writer thread")?;
         Ok(Self {

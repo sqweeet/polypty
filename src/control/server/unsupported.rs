@@ -8,7 +8,7 @@ pub(crate) struct ControlServer;
 
 impl ControlServer {
     pub(crate) fn bind(_: PathBuf) -> Result<Self> {
-        bail!("mux control sessions require Unix sockets")
+        bail!("polypty control sessions require Unix sockets")
     }
 
     pub(crate) fn path(&self) -> &Path {

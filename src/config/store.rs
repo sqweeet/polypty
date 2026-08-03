@@ -13,7 +13,7 @@ pub(super) struct ConfigSource {
 }
 
 pub(super) fn read() -> Result<Option<ConfigSource>> {
-    let explicit = std::env::var_os("MUX_CONFIG").map(PathBuf::from);
+    let explicit = std::env::var_os("POLYPTY_CONFIG").map(PathBuf::from);
     let Some(path) = explicit.clone().or_else(default_path) else {
         return Ok(None);
     };
@@ -67,7 +67,10 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
         .ok()
         .map(|metadata| metadata.permissions());
     for attempt in 0..100 {
-        let temporary = parent.join(format!(".mux-config-{}-{attempt}.tmp", std::process::id()));
+        let temporary = parent.join(format!(
+            ".polypty-config-{}-{attempt}.tmp",
+            std::process::id()
+        ));
         let mut file = match OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -99,12 +102,12 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<()> {
 fn default_path() -> Option<PathBuf> {
     if let Some(root) = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from) {
         if root.is_absolute() {
-            return Some(root.join("mux/config.toml"));
+            return Some(root.join("polypty/config.toml"));
         }
     }
     std::env::var_os("HOME")
         .map(PathBuf::from)
-        .map(|home| home.join(".config/mux/config.toml"))
+        .map(|home| home.join(".config/polypty/config.toml"))
 }
 
 #[cfg(test)]

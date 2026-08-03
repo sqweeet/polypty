@@ -1,4 +1,4 @@
-/// Action handled by mux itself instead of being forwarded to the child.
+/// Action handled by polypty itself instead of being forwarded to the child.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Quit,

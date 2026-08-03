@@ -24,7 +24,7 @@ pub(super) struct InstanceGuard {
 
 impl InstanceGuard {
     pub(super) fn acquire() -> Result<Self> {
-        let marker = std::env::var_os("MUX");
+        let marker = std::env::var_os("POLYPTY");
         reject_nested(marker.as_deref())?;
 
         #[cfg(unix)]
@@ -42,24 +42,25 @@ impl InstanceGuard {
                 let mut owner = String::new();
                 let _ = (&file).read_to_string(&mut owner);
                 if let Ok(pid) = owner.trim().parse::<u32>() {
-                    bail!("another mux instance is already running (pid {pid})");
+                    bail!("another polypty instance is already running (pid {pid})");
                 }
-                bail!("another mux instance is already running");
+                bail!("another polypty instance is already running");
             }
-            return Err(err).with_context(|| format!("lock mux instance at {}", path.display()));
+            return Err(err)
+                .with_context(|| format!("lock polypty instance at {}", path.display()));
         }
-        file.set_len(0).context("clear mux instance lock")?;
+        file.set_len(0).context("clear polypty instance lock")?;
         file.seek(SeekFrom::Start(0))
-            .context("rewind mux instance lock")?;
-        writeln!(file, "{}", std::process::id()).context("write mux instance owner")?;
-        file.flush().context("flush mux instance owner")?;
+            .context("rewind polypty instance lock")?;
+        writeln!(file, "{}", std::process::id()).context("write polypty instance owner")?;
+        file.flush().context("flush polypty instance owner")?;
         Ok(Self { _lock: file })
     }
 }
 
 fn reject_nested(marker: Option<&OsStr>) -> Result<()> {
     if marker.is_some() {
-        bail!("refusing to start mux inside an existing mux session");
+        bail!("refusing to start polypty inside an existing polypty session");
     }
     Ok(())
 }
@@ -73,10 +74,10 @@ fn open_lock(path: &Path) -> Result<File> {
         .mode(0o600)
         .custom_flags(libc::O_CLOEXEC | libc::O_NOFOLLOW)
         .open(path)
-        .with_context(|| format!("open mux instance lock at {}", path.display()))?;
+        .with_context(|| format!("open polypty instance lock at {}", path.display()))?;
     if file.metadata()?.uid() != unsafe { libc::geteuid() } {
         bail!(
-            "mux instance lock is owned by another user: {}",
+            "polypty instance lock is owned by another user: {}",
             path.display()
         );
     }
@@ -98,10 +99,10 @@ fn default_lock_path() -> PathBuf {
     if let Some(path) = std::env::var_os("XDG_RUNTIME_DIR") {
         let path = PathBuf::from(path);
         if path.is_absolute() {
-            return path.join("mux.instance.lock");
+            return path.join("polypty.instance.lock");
         }
     }
-    std::env::temp_dir().join(format!("mux-{}.lock", unsafe { libc::geteuid() }))
+    std::env::temp_dir().join(format!("polypty-{}.lock", unsafe { libc::geteuid() }))
 }
 
 #[cfg(test)]

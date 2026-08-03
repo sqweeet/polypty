@@ -1,6 +1,6 @@
 fn main() {
-    if let Err(err) = mux::runtime::run() {
-        eprintln!("mux: {err:#}");
+    if let Err(err) = polypty::runtime::run() {
+        eprintln!("polypty: {err:#}");
         std::process::exit(1);
     }
 }

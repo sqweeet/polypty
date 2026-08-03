@@ -11,12 +11,12 @@ pub(super) fn child_command(
     for (name, value) in child_terminal_environment() {
         command.env(name, value);
     }
-    command.env("MUX", "1");
-    command.env("MUX_TAB", tab_id.to_string());
-    command.env("MUX_PANE", pane_id.to_string());
-    command.env("MUX_SESSION", crate::control::SESSION_NAME);
+    command.env("POLYPTY", "1");
+    command.env("POLYPTY_TAB", tab_id.to_string());
+    command.env("POLYPTY_PANE", pane_id.to_string());
+    command.env("POLYPTY_SESSION", crate::control::SESSION_NAME);
     if let Some(path) = control_socket {
-        command.env("MUX_SOCKET", path.as_os_str());
+        command.env("POLYPTY_SOCKET", path.as_os_str());
     }
     if let Ok(cwd) = std::env::current_dir() {
         command.cwd(cwd);
@@ -25,7 +25,7 @@ pub(super) fn child_command(
 }
 
 pub(super) fn child_terminal_environment() -> [(&'static str, &'static str); 2] {
-    // Advertise only capabilities implemented by vt100 + mux's input encoder.
+    // Advertise only capabilities implemented by vt100 + polypty's input encoder.
     [("TERM", "xterm-256color"), ("COLORTERM", "truecolor")]
 }
 

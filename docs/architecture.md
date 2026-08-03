@@ -1,4 +1,4 @@
-# Архитектура mux
+# Архитектура polypty
 
 Этот документ описывает границы модулей и места расширения. Модульные façade
 короткие; реализация каждой возможности лежит в соседних feature-модулях.
@@ -38,7 +38,7 @@ socket context в composition root `App`. Путь исходного конфи
 
 | Объект | Ответственность и состав |
 |---|---|
-| `MuxRuntime` | Загружает `Config`, удерживает `InstanceGuard` и `ControlServer`, устанавливает `ShutdownLatch`, входит в `HostTerminal` через RAII и запускает `EventLoop` с `App`, stdout и `ResizeWatcher`. |
+| `PolyptyRuntime` | Загружает `Config`, удерживает `InstanceGuard` и `ControlServer`, устанавливает `ShutdownLatch`, входит в `HostTerminal` через RAII и запускает `EventLoop` с `App`, stdout и `ResizeWatcher`. |
 | `ControlServer` | Владеет Unix listener/thread и очередью JSON-запросов. Event loop выполняет запросы над `App`; socket-thread никогда не владеет приложением или PTY. |
 | `App` | Содержит `WorkspaceBook`, `Viewport`, `FrameScheduler`, состояния exit/preference/context UI, render-`Presenter`, заменяемые `Clipboard` и `SessionFactory`. Модули `control`, `session`, `interaction`, `polling`, `resize`, `draw` и `lifecycle` реализуют его façade. |
 | `Workspace` | Один пункт сайдбара: `PaneStore`, `SplitTree` и `FocusModel`. Каждая pane содержит одну `TerminalSession`; `snapshot` проецирует состояние для renderer без передачи владения. |
@@ -69,7 +69,7 @@ socket context в composition root `App`. Путь исходного конфи
 
 ### Ввод
 
-- Новая команда mux: вариант `input::Action`, binding в `input/keymap.rs`
+- Новая команда polypty: вариант `input::Action`, binding в `input/keymap.rs`
   и обработчик в `app/interaction/`.
 - Новая terminal sequence: соответствующий модуль `input/keyboard/` или
   `input/mouse/`; неизвестная комбинация должна оставаться `Action::Forward`.

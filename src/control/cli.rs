@@ -3,14 +3,14 @@ use anyhow::Result;
 use super::{args, client, output, socket_path, ControlRequest};
 
 const HELP: &str = "\
-mux — interactive terminal multiplexer and control client
+polypty — interactive terminal multiplexer and control client
 
 USAGE:
-  mux
-  mux <COMMAND> [OPTIONS]
+  polypty
+  polypty <COMMAND> [OPTIONS]
 
 COMMANDS:
-  list-sessions, ls                 Show the running mux session
+  list-sessions, ls                 Show the running polypty session
   list-tabs, list-windows           List tabs and pane IDs
   new-tab, new-window               Create and focus a tab
   select-tab, select-window TARGET  Focus a tab (TARGET or -t TARGET)
@@ -22,12 +22,12 @@ COMMANDS:
 OPTIONS:
   --json       Emit machine-readable JSON
   --help       Show this help
-  --version    Show mux version
+  --version    Show polypty version
 
 EXAMPLES:
-  mux list-tabs --json
-  mux capture-pane -t 2
-  mux send-keys -t 2 --enter -- 'cargo test'
+  polypty list-tabs --json
+  polypty capture-pane -t 2
+  polypty send-keys -t 2 --enter -- 'cargo test'
 ";
 
 pub(super) fn dispatch() -> Result<bool> {
@@ -40,7 +40,7 @@ pub(super) fn dispatch() -> Result<bool> {
         return Ok(true);
     }
     if matches!(first.as_str(), "--version" | "-V" | "version") {
-        println!("mux {}", env!("CARGO_PKG_VERSION"));
+        println!("polypty {}", env!("CARGO_PKG_VERSION"));
         return Ok(true);
     }
     let invocation = args::parse(&args)?;
@@ -51,11 +51,11 @@ pub(super) fn dispatch() -> Result<bool> {
 }
 
 fn apply_client_context(mut request: ControlRequest) -> ControlRequest {
-    let tab = std::env::var("MUX_TAB")
+    let tab = std::env::var("POLYPTY_TAB")
         .ok()
         .filter(|value| !value.is_empty())
         .map(|value| format!("@{value}"));
-    let pane = std::env::var("MUX_PANE")
+    let pane = std::env::var("POLYPTY_PANE")
         .ok()
         .and_then(|value| value.parse().ok());
     apply_context(&mut request, tab, pane);

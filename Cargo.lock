@@ -218,24 +218,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mux"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "crossterm",
- "libc",
- "portable-pty",
- "serde",
- "serde_json",
- "signal-hook",
- "toml",
- "toml_edit",
- "unicode-segmentation",
- "unicode-width",
- "vt100",
-]
-
-[[package]]
 name = "nix"
 version = "0.28.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -268,6 +250,24 @@ dependencies = [
  "redox_syscall",
  "smallvec",
  "windows-link",
+]
+
+[[package]]
+name = "polypty"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossterm",
+ "libc",
+ "portable-pty",
+ "serde",
+ "serde_json",
+ "signal-hook",
+ "toml",
+ "toml_edit",
+ "unicode-segmentation",
+ "unicode-width",
+ "vt100",
 ]
 
 [[package]]

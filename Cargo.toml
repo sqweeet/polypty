@@ -1,9 +1,17 @@
 [package]
-name = "mux"
+name = "polypty"
 version = "0.1.0"
 edition = "2021"
-description = "Minimal terminal multiplexer with sidebar tabs"
+description = "Agent-aware terminal multiplexer with sidebar tabs and nested panes"
 license = "MIT"
+repository = "https://github.com/sqweeet/polypty"
+homepage = "https://github.com/sqweeet/polypty"
+documentation = "https://docs.rs/polypty"
+readme = "README.md"
+keywords = ["terminal", "multiplexer", "pty", "tui", "cli"]
+categories = ["command-line-utilities"]
+exclude = ["/.github", "/.gitignore", "/journal.md", "/scripts"]
+publish = ["crates-io"]
 
 [dependencies]
 anyhow = "1"

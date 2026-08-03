@@ -16,14 +16,14 @@ use instance::InstanceGuard;
 use signals::ShutdownLatch;
 
 /// Owns process-level services and connects them to the application loop.
-pub struct MuxRuntime {
+pub struct PolyptyRuntime {
     shutdown: ShutdownLatch,
     config: Config,
     control: ControlServer,
     _instance: InstanceGuard,
 }
 
-impl MuxRuntime {
+impl PolyptyRuntime {
     pub fn new() -> Result<Self> {
         let instance = InstanceGuard::acquire()?;
         let config = Config::load()?;
@@ -47,5 +47,5 @@ pub fn run() -> Result<()> {
     if control::dispatch_cli()? {
         return Ok(());
     }
-    MuxRuntime::new()?.run()
+    PolyptyRuntime::new()?.run()
 }

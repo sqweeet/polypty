@@ -12,9 +12,9 @@ use super::reject_nested;
 use super::InstanceGuard;
 
 #[test]
-fn nested_mux_is_rejected() {
+fn nested_polypty_is_rejected() {
     let err = reject_nested(Some(OsStr::new("1"))).unwrap_err();
-    assert!(err.to_string().contains("inside an existing mux"));
+    assert!(err.to_string().contains("inside an existing polypty"));
     reject_nested(None).unwrap();
 }
 
@@ -42,7 +42,7 @@ fn unique_lock_path() -> std::path::PathBuf {
         .unwrap()
         .as_nanos();
     std::env::temp_dir().join(format!(
-        "mux-instance-test-{}-{nanos}-{}",
+        "polypty-instance-test-{}-{nanos}-{}",
         std::process::id(),
         NEXT.fetch_add(1, Ordering::Relaxed)
     ))

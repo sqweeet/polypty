@@ -47,5 +47,8 @@ fn shortcut_setting_creates_a_missing_config_tree() {
 
 fn temporary_root() -> std::path::PathBuf {
     let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!("mux-config-test-{}-{sequence}", std::process::id()))
+    std::env::temp_dir().join(format!(
+        "polypty-config-test-{}-{sequence}",
+        std::process::id()
+    ))
 }

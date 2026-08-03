@@ -18,7 +18,7 @@ static NEXT_DIRECTORY: AtomicU64 = AtomicU64::new(0);
 #[test]
 fn scope_dialog_separates_session_and_persistent_changes() {
     let root = temporary_root("scope");
-    let path = root.join("mux/config.toml");
+    let path = root.join("polypty/config.toml");
     let mut app = app(Some(path.clone()));
 
     app.open_shortcut_dialog(false);
@@ -122,7 +122,7 @@ fn mouse(kind: MouseEventKind, column: u16, row: u16) -> MouseEvent {
 fn temporary_root(label: &str) -> PathBuf {
     let sequence = NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "mux-dialog-test-{}-{label}-{sequence}",
+        "polypty-dialog-test-{}-{label}-{sequence}",
         std::process::id()
     ))
 }

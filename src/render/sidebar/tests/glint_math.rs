@@ -23,11 +23,11 @@ fn glint_is_neutral_smooth_and_has_a_true_rest() {
     );
     assert_eq!(
         rgb(working_glint_bg(true, GlintFrame(25), 9, 18)),
-        (72, 72, 72)
+        (68, 68, 68)
     );
 
     for active in [false, true] {
-        let max = if active { 72 } else { 54 };
+        let max = if active { 68 } else { 50 };
         for frame in 0..50 {
             for column in 0..18 {
                 let (r, g, b) = rgb(working_glint_bg(active, GlintFrame(frame), column, 18));

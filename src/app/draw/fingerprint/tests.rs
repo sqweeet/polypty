@@ -12,7 +12,7 @@ fn semantic_agent_state_is_structural_but_glint_phase_is_not() {
     let mut tabs = vec![SidebarTab {
         key: 1,
         primary: "codex".into(),
-        secondary: "~/projects/mux".into(),
+        secondary: "~/projects/polypty".into(),
         agent: Some(AgentStatus::single(AgentKind::Codex, AgentState::Working)),
         glint_frame: Some(GlintFrame::for_elapsed(Duration::ZERO)),
         active: true,

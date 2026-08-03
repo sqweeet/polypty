@@ -5,7 +5,7 @@ use crossterm::style::Color;
 use crate::agent::AgentState;
 use crate::render::fade::blend;
 
-use super::badge::ready_badge_spans;
+use super::badge::{blocked_badge_spans, ready_badge_spans};
 use super::cache::SidebarPaintRow;
 use super::glint::{sidebar_paint_spans, GlintFrame};
 use super::model::SidebarContentRow;
@@ -19,7 +19,6 @@ pub(super) struct SidebarPalette {
     idle: Color,
     secondary_active: Color,
     secondary_idle: Color,
-    blocked: Color,
 }
 
 impl SidebarPalette {
@@ -33,11 +32,6 @@ impl SidebarPalette {
             idle: rgb(120),
             secondary_active: rgb(130),
             secondary_idle: rgb(96),
-            blocked: Color::Rgb {
-                r: 220,
-                g: 105,
-                b: 105,
-            },
         }
     }
 
@@ -54,15 +48,16 @@ impl SidebarPalette {
             .max(row.visual.hover / 2)
             .max(row.visual.press.saturating_mul(3) / 4);
         let foreground = match row.kind {
-            2 | 6 | 7 => blend(self.idle, self.active, emphasis),
+            2 | 6 | 7 | 8 => blend(self.idle, self.active, emphasis),
             5 => self.idle,
             3 => blend(self.secondary_idle, self.secondary_active, emphasis),
             4 => self.secondary_idle,
-            8 => self.blocked,
             _ => self.idle,
         };
         let spans = if row.kind == 6 {
             ready_badge_spans(&label, width, background, foreground)
+        } else if row.kind == 8 {
+            blocked_badge_spans(&label, width, background, foreground)
         } else {
             let working = row.agent_state == Some(AgentState::Working);
             sidebar_paint_spans(

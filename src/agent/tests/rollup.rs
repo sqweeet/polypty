@@ -15,6 +15,13 @@ fn counts_panes_and_preserves_priority_and_first_tie() {
         })
     );
     assert_eq!(
+        rollup([codex_working, codex_ready, codex_working]),
+        Some(AgentStatus {
+            panes: 3,
+            ..codex_working
+        })
+    );
+    assert_eq!(
         rollup([codex_working, claude_working]),
         Some(AgentStatus {
             panes: 2,

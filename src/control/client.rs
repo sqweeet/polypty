@@ -15,7 +15,7 @@ pub(super) fn exchange(path: &Path, request: &ControlRequest) -> Result<ControlR
 
     let mut stream = UnixStream::connect(path).with_context(|| {
         format!(
-            "no running mux session at {} (start interactive `mux` first)",
+            "no running polypty session at {} (start interactive `polypty` first)",
             path.display()
         )
     })?;
@@ -28,11 +28,11 @@ pub(super) fn exchange(path: &Path, request: &ControlRequest) -> Result<ControlR
     stream
         .take(16 * 1024 * 1024)
         .read_to_end(&mut bytes)
-        .context("read mux control response")?;
-    serde_json::from_slice(&bytes).context("decode mux control response")
+        .context("read polypty control response")?;
+    serde_json::from_slice(&bytes).context("decode polypty control response")
 }
 
 #[cfg(not(unix))]
 pub(super) fn exchange(_: &Path, _: &ControlRequest) -> Result<ControlResponse> {
-    anyhow::bail!("mux control sessions require Unix sockets")
+    anyhow::bail!("polypty control sessions require Unix sockets")
 }

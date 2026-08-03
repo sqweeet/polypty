@@ -33,7 +33,7 @@ impl PtyOutputChannel {
     pub fn spawn(mut reader: Box<dyn Read + Send>, id: u64) -> Result<Self> {
         let (tx, rx) = mpsc::sync_channel::<Vec<u8>>(QUEUE_CHUNKS);
         let handle = thread::Builder::new()
-            .name(format!("mux-pty-read-{id}"))
+            .name(format!("polypty-pty-read-{id}"))
             .spawn(move || reader_loop(&mut reader, tx))
             .context("spawn pty reader thread")?;
         Ok(Self {

@@ -66,7 +66,7 @@ pub(super) fn is_shell(name: &str) -> bool {
             | "tmux"
             | "screen"
             | "login"
-            | "mux"
+            | "polypty"
     )
 }
 

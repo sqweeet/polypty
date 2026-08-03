@@ -9,7 +9,7 @@ pub(super) struct Invocation {
 
 pub(super) fn parse(args: &[String]) -> Result<Invocation> {
     let Some((command, rest)) = args.split_first() else {
-        bail!("missing mux command");
+        bail!("missing polypty command");
     };
     match command.as_str() {
         "ping" => simple(ControlRequest::Ping, rest),
@@ -24,7 +24,7 @@ pub(super) fn parse(args: &[String]) -> Result<Invocation> {
         }
         "capture-pane" | "capturep" => capture(rest),
         "send-keys" | "send" => send_keys(rest),
-        _ => bail!("unknown mux command `{command}`; run `mux --help`"),
+        _ => bail!("unknown polypty command `{command}`; run `polypty --help`"),
     }
 }
 

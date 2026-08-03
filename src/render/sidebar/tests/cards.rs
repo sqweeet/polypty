@@ -33,7 +33,7 @@ fn tab_cards_have_no_blank_rows_between_them() {
     let long = [SidebarTab {
         key: 1,
         primary: "a very long process title".into(),
-        secondary: "~/projects/mux".into(),
+        secondary: "~/projects/polypty".into(),
         agent: None,
         glint_frame: None,
         active: true,
