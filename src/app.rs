@@ -26,6 +26,9 @@ const RESIZE_CHILD_REDRAW_DELAY: Duration = Duration::from_millis(12);
 /// than one 60 Hz frame of latency to continuously streaming output.
 const OUTPUT_QUIET_DELAY: Duration = Duration::from_millis(3);
 const OUTPUT_MAX_FRAME_DELAY: Duration = Duration::from_millis(16);
+/// One low-contrast background cell moves per frame; a default sidebar sweep
+/// takes roughly three seconds without animating text or layout.
+const SIDEBAR_GLINT_FRAME: Duration = Duration::from_millis(120);
 /// Ordinary shell echo must not blink the block cursor. Only suppress it for
 /// substantial redraw bursts (or while a resize already owns the cursor).
 const CURSOR_SUPPRESS_BURST_BYTES: usize = 512;
@@ -46,6 +49,8 @@ pub struct App {
     sidebar_fp: String,
     /// Row-level sidebar diff cache.
     sidebar_cache: SidebarCache,
+    sidebar_glint_epoch: Instant,
+    painted_glint_step: u64,
     /// Last sidebar hit map for mouse clicks.
     sidebar_map: SidebarMap,
     /// Dragging the sidebar edge to resize.
@@ -71,6 +76,7 @@ pub struct App {
 
 impl App {
     pub fn new(cols: u16, rows: u16) -> Result<Self> {
+        let sidebar_glint_epoch = Instant::now();
         let mut app = Self {
             workspaces: Vec::new(),
             active: 0,
@@ -83,6 +89,8 @@ impl App {
             needs_hard_clear: true,
             sidebar_fp: String::new(),
             sidebar_cache: SidebarCache::default(),
+            sidebar_glint_epoch,
+            painted_glint_step: 0,
             sidebar_map: SidebarMap::default(),
             dragging_sidebar: false,
             dirty_ui: true,
@@ -568,7 +576,6 @@ impl App {
         {
             return false;
         }
-
         let workspace_dirty = self
             .workspaces
             .get(self.active)
@@ -576,8 +583,13 @@ impl App {
         if self.dirty_ui || workspace_dirty {
             return self.output_frame_ready(now);
         }
-        self.cursor_settle_until
-            .is_some_and(|deadline| now >= deadline)
+        let cursor_due = self
+            .cursor_settle_until
+            .is_some_and(|deadline| now >= deadline);
+        cursor_due
+            || (self.sidebar_visible
+                && self.sidebar_map.has_visible_working
+                && glint_step(self.sidebar_glint_epoch, now) != self.painted_glint_step)
     }
 
     fn output_frame_ready(&self, now: Instant) -> bool {
@@ -715,15 +727,18 @@ impl App {
                 }
             })
             .collect();
+        let current_glint_step = glint_step(self.sidebar_glint_epoch, now);
+        let glint_due =
+            self.sidebar_map.has_visible_working && current_glint_step != self.painted_glint_step;
         let fp = sidebar_fingerprint(
             &side_tabs,
             layout.sidebar_visible,
             layout.sidebar_width,
             layout.rows,
         );
-        let need_sidebar = layout.sidebar_visible && (force || hard || fp != self.sidebar_fp);
-        let need_workspace = need_sidebar
-            || force
+        let need_sidebar =
+            layout.sidebar_visible && (force || hard || fp != self.sidebar_fp || glint_due);
+        let need_workspace = force
             || hard
             || self.viewport_dirty
             || need_cursor_restore
@@ -732,7 +747,12 @@ impl App {
                 .get(active)
                 .is_some_and(|workspace| workspace.needs_draw(area));
 
-        let frame_cells = (layout.cols as usize).saturating_mul(layout.rows as usize);
+        let frame_cols = if need_workspace {
+            layout.cols
+        } else {
+            layout.sidebar_width
+        };
+        let frame_cells = (frame_cols as usize).saturating_mul(layout.rows as usize);
         let mut frame = Vec::with_capacity(frame_cells.saturating_mul(4));
         render::begin_sync(&mut frame)?;
 
@@ -750,9 +770,11 @@ impl App {
                 &layout,
                 &side_tabs,
                 &mut self.sidebar_cache,
+                current_glint_step,
                 hard,
             )?;
             self.sidebar_fp = fp;
+            self.painted_glint_step = current_glint_step;
         } else if !layout.sidebar_visible {
             self.sidebar_map = SidebarMap::default();
             self.sidebar_cache.invalidate();
@@ -766,6 +788,14 @@ impl App {
                     area,
                     !cursor_settled || resize_in_progress,
                     false,
+                )?;
+            }
+        } else if need_sidebar {
+            if let Some(workspace) = self.workspaces.get(active) {
+                workspace.restore_active_cursor(
+                    &mut frame,
+                    area,
+                    !cursor_settled || resize_in_progress,
                 )?;
             }
         }
@@ -828,6 +858,11 @@ fn is_output_frame_ready(
     };
     let quiet = quiet_until.is_some_and(|deadline| now >= deadline);
     quiet || now.duration_since(started) >= OUTPUT_MAX_FRAME_DELAY
+}
+
+fn glint_step(epoch: Instant, now: Instant) -> u64 {
+    let frames = now.duration_since(epoch).as_millis() / SIDEBAR_GLINT_FRAME.as_millis();
+    u64::try_from(frames).unwrap_or(u64::MAX)
 }
 
 fn sidebar_fingerprint(tabs: &[SidebarTab], visible: bool, width: u16, rows: u16) -> String {
@@ -924,5 +959,13 @@ mod tests {
         let blocked = sidebar_fingerprint(&tabs, true, 18, 24);
 
         assert_ne!(working, blocked);
+    }
+
+    #[test]
+    fn glint_step_is_quantized_without_timer_drift() {
+        let epoch = Instant::now();
+        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(119)), 0);
+        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(120)), 1);
+        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(481)), 4);
     }
 }

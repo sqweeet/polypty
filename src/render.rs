@@ -360,6 +360,7 @@ pub struct SidebarMap {
     /// row -> tab index (None = empty / padding)
     pub row_tab: Vec<Option<usize>>,
     pub width: u16,
+    pub has_visible_working: bool,
 }
 
 impl SidebarMap {
@@ -387,9 +388,14 @@ impl SidebarCache {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SidebarPaintRow {
-    label: String,
-    bg: Color,
+    spans: Vec<SidebarPaintSpan>,
     fg: Color,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SidebarPaintSpan {
+    text: String,
+    bg: Color,
 }
 
 /// Sidebar tab row model — cmux-style primary + secondary.
@@ -405,8 +411,18 @@ pub struct SidebarTab {
 struct TabCard {
     tab_idx: usize,
     active: bool,
+    agent_state: Option<AgentState>,
     /// kind per line: 2 primary, 3 secondary, 6/7/8 agent state
     lines: Vec<(u8, String)>,
+}
+
+#[derive(Debug, Clone)]
+struct SidebarContentRow {
+    tab_idx: Option<usize>,
+    active: bool,
+    agent_state: Option<AgentState>,
+    kind: u8,
+    text: String,
 }
 
 fn build_cards(tabs: &[SidebarTab], inner_w: usize) -> Vec<TabCard> {
@@ -422,15 +438,13 @@ fn build_cards(tabs: &[SidebarTab], inner_w: usize) -> Vec<TabCard> {
                 AgentState::Working => 7,
                 AgentState::Blocked => 8,
             };
-            (
-                kind,
-                format!(
-                    "{} {} · {}",
-                    status.state.marker(),
-                    status.kind.label(),
-                    status.state.label()
-                ),
-            )
+            let primary = match status.state {
+                AgentState::Working => status.kind.label().to_string(),
+                AgentState::Ready | AgentState::Blocked => {
+                    format!("{} · {}", status.kind.label(), status.state.label())
+                }
+            };
+            (kind, primary)
         } else if tab.primary.is_empty() {
             (2, "shell".to_string())
         } else {
@@ -461,6 +475,7 @@ fn build_cards(tabs: &[SidebarTab], inner_w: usize) -> Vec<TabCard> {
         cards.push(TabCard {
             tab_idx: i,
             active: tab.active,
+            agent_state: tab.agent.map(|status| status.state),
             lines,
         });
     }
@@ -472,10 +487,7 @@ fn build_cards(tabs: &[SidebarTab], inner_w: usize) -> Vec<TabCard> {
 /// Cards before the active one provide list context when they fit; remaining
 /// space is filled from the following cards. If the viewport is only one row
 /// high, the active primary line wins over its secondary metadata.
-fn card_viewport_rows(
-    cards: &[TabCard],
-    capacity: usize,
-) -> Vec<(Option<usize>, bool, u8, String)> {
+fn card_viewport_rows(cards: &[TabCard], capacity: usize) -> Vec<SidebarContentRow> {
     if cards.is_empty() || capacity == 0 {
         return Vec::new();
     }
@@ -487,7 +499,13 @@ fn card_viewport_rows(
             .lines
             .iter()
             .take(capacity)
-            .map(|(kind, text)| (Some(active.tab_idx), active.active, *kind, text.clone()))
+            .map(|(kind, text)| SidebarContentRow {
+                tab_idx: Some(active.tab_idx),
+                active: active.active,
+                agent_state: active.agent_state,
+                kind: *kind,
+                text: text.clone(),
+            })
             .collect();
     }
 
@@ -515,11 +533,67 @@ fn card_viewport_rows(
     cards[start..end]
         .iter()
         .flat_map(|card| {
-            card.lines
-                .iter()
-                .map(|(kind, text)| (Some(card.tab_idx), card.active, *kind, text.clone()))
+            card.lines.iter().map(|(kind, text)| SidebarContentRow {
+                tab_idx: Some(card.tab_idx),
+                active: card.active,
+                agent_state: card.agent_state,
+                kind: *kind,
+                text: text.clone(),
+            })
         })
         .collect()
+}
+
+fn working_glint_bg(active: bool, step: u64, column: usize, width: usize) -> Color {
+    let cycle = width.saturating_add(6).max(1) as u64;
+    let center = (step % cycle) as isize - 3;
+    let distance = (column as isize - center).unsigned_abs();
+    let lift = match distance {
+        0 => 16,
+        1 => 9,
+        2 => 3,
+        _ => 0,
+    };
+    let base = if active { 48 } else { 36 };
+    Color::Rgb {
+        r: base + lift,
+        g: base + lift * 2 / 3,
+        b: base + lift / 4,
+    }
+}
+
+fn sidebar_paint_spans(
+    label: &str,
+    width: usize,
+    base_bg: Color,
+    glint: Option<(bool, u64)>,
+) -> Vec<SidebarPaintSpan> {
+    let padded = pad_fit(label, width);
+    let mut spans: Vec<SidebarPaintSpan> = Vec::new();
+    let mut column = 0usize;
+
+    for grapheme in UnicodeSegmentation::graphemes(padded.as_str(), true) {
+        let grapheme_width = UnicodeWidthStr::width(grapheme);
+        if grapheme_width == 0 {
+            if let Some(span) = spans.last_mut() {
+                span.text.push_str(grapheme);
+            }
+            continue;
+        }
+        let bg = glint
+            .map(|(active, step)| working_glint_bg(active, step, column, width))
+            .unwrap_or(base_bg);
+        if let Some(span) = spans.last_mut().filter(|span| span.bg == bg) {
+            span.text.push_str(grapheme);
+        } else {
+            spans.push(SidebarPaintSpan {
+                text: grapheme.to_string(),
+                bg,
+            });
+        }
+        column = column.saturating_add(grapheme_width);
+    }
+    spans
 }
 
 fn sidebar_footer(width: usize, height: usize) -> Vec<(u8, &'static str)> {
@@ -563,11 +637,13 @@ pub fn draw_sidebar(
     layout: &Layout,
     tabs: &[SidebarTab],
     cache: &mut SidebarCache,
+    glint_step: u64,
     force: bool,
 ) -> Result<SidebarMap> {
     let mut map = SidebarMap {
         row_tab: vec![None; layout.rows as usize],
         width: layout.sidebar_width,
+        has_visible_working: false,
     };
 
     if !layout.sidebar_visible || layout.sidebar_width == 0 {
@@ -615,11 +691,6 @@ pub fn draw_sidebar(
         g: 184,
         b: 136,
     };
-    let fg_working = Color::Rgb {
-        r: 214,
-        g: 172,
-        b: 86,
-    };
     let fg_blocked = Color::Rgb {
         r: 220,
         g: 105,
@@ -630,14 +701,20 @@ pub fn draw_sidebar(
     let footer = sidebar_footer(w, h);
     let footer_start = h.saturating_sub(footer.len());
 
-    // (tab_idx, active, kind, text). Keep the section heading attached
+    // (tab_idx, active, agent state, kind, text). Keep the section heading attached
     // directly to a viewport of cards. On a one-row terminal the active card
     // takes priority over the heading, so resize can never hide the active tab.
     let content_height = footer_start;
     let show_heading = content_height > usize::from(!cards.is_empty());
-    let mut rows: Vec<(Option<usize>, bool, u8, String)> = Vec::new();
+    let mut rows = Vec::new();
     if show_heading {
-        rows.push((None, false, 4, "tabs".to_string()));
+        rows.push(SidebarContentRow {
+            tab_idx: None,
+            active: false,
+            agent_state: None,
+            kind: 4,
+            text: "tabs".to_string(),
+        });
     }
     rows.extend(card_viewport_rows(
         &cards,
@@ -646,19 +723,27 @@ pub fn draw_sidebar(
 
     let mut painted_rows = Vec::with_capacity(h);
     for y in 0..h {
-        let (tab_idx, active, kind, text) = if y >= footer_start {
+        let (tab_idx, active, agent_state, kind, text) = if y >= footer_start {
             let (kind, text) = footer[y - footer_start];
-            (None, false, kind, text)
+            (None, false, None, kind, text)
         } else if y < rows.len() {
-            let (ti, a, k, t) = &rows[y];
-            (*ti, *a, *k, t.as_str())
+            let row = &rows[y];
+            (
+                row.tab_idx,
+                row.active,
+                row.agent_state,
+                row.kind,
+                row.text.as_str(),
+            )
         } else {
-            (None, false, 0u8, "")
+            (None, false, None, 0u8, "")
         };
 
         if let Some(idx) = tab_idx {
             map.row_tab[y] = Some(idx);
         }
+        let working_primary = agent_state == Some(AgentState::Working) && kind == 7;
+        map.has_visible_working |= working_primary;
 
         let row_bg = if active && kind != 0 { bg_active } else { bg };
         let fg = match kind {
@@ -668,14 +753,19 @@ pub fn draw_sidebar(
             3 | 4 => fg_sec_idle,
             5 => fg_idle,
             6 => fg_ready,
-            7 => fg_working,
+            7 if active => fg_active,
+            7 => fg_idle,
             8 => fg_blocked,
             _ => fg_idle,
         };
 
         painted_rows.push(SidebarPaintRow {
-            label: pad_fit(text, w),
-            bg: row_bg,
+            spans: sidebar_paint_spans(
+                text,
+                w,
+                row_bg,
+                working_primary.then_some((active, glint_step)),
+            ),
             fg,
         });
     }
@@ -693,13 +783,10 @@ pub fn draw_sidebar(
             queue!(out, Hide)?;
             cursor_hidden = true;
         }
-        queue!(
-            out,
-            MoveTo(0, y as u16),
-            SetBackgroundColor(row.bg),
-            SetForegroundColor(row.fg),
-            Print(&row.label)
-        )?;
+        queue!(out, MoveTo(0, y as u16), SetForegroundColor(row.fg))?;
+        for span in &row.spans {
+            queue!(out, SetBackgroundColor(span.bg), Print(&span.text))?;
+        }
     }
 
     cache.width = layout.sidebar_width;
@@ -797,6 +884,39 @@ fn draw_terminal(
     )
 }
 
+fn terminal_cursor_state(
+    rect: TerminalRect,
+    screen: &Screen,
+    suppress_cursor: bool,
+) -> (u16, u16, bool) {
+    let (cur_row, cur_col) = screen.cursor_position();
+    let cx = rect
+        .x
+        .saturating_add(cur_col.min(rect.cols.max(1).saturating_sub(1)));
+    let cy = rect
+        .y
+        .saturating_add(cur_row.min(rect.rows.max(1).saturating_sub(1)));
+    (cx, cy, screen.hide_cursor() || suppress_cursor)
+}
+
+/// Restore the one real host cursor after a sidebar-only frame without
+/// rebuilding the active pane's entire terminal grid.
+pub fn restore_terminal_cursor(
+    out: &mut impl Write,
+    rect: TerminalRect,
+    screen: &Screen,
+    suppress_cursor: bool,
+) -> Result<()> {
+    let (cx, cy, cursor_hidden) = terminal_cursor_state(rect, screen, suppress_cursor);
+    queue!(out, ResetColor, SetAttribute(Attribute::Reset))?;
+    if cursor_hidden {
+        queue!(out, Hide)?;
+    } else {
+        queue!(out, MoveTo(cx, cy), Show)?;
+    }
+    Ok(())
+}
+
 pub fn draw_terminal_rect(
     out: &mut impl Write,
     rect: TerminalRect,
@@ -871,12 +991,9 @@ pub fn draw_terminal_rect(
         }
     }
 
-    let (cur_row, cur_col) = screen.cursor_position();
-    let cx = origin_x.saturating_add(cur_col.min(view_cols.saturating_sub(1)));
-    let cy = origin_y.saturating_add(cur_row.min(view_rows.saturating_sub(1)));
+    let (cx, cy, cursor_hidden) = terminal_cursor_state(rect, screen, suppress_cursor);
     // A TUI frame can arrive over several PTY reads. During that short burst,
     // don't expose transient cursor positions (often the bottom-right corner).
-    let cursor_hidden = screen.hide_cursor() || suppress_cursor;
 
     // Caller owns the outer sync frame. Keep cursor hidden during paint.
     queue!(out, Hide)?;
@@ -967,16 +1084,8 @@ pub fn draw_terminal_rect(
     cache.cursor = (cx, cy);
     cache.cursor_hidden = cursor_hidden;
 
-    queue!(out, ResetColor, SetAttribute(Attribute::Reset))?;
-
     // Place cursor once, at the end — never toggled mid-frame.
-    if cursor_hidden {
-        queue!(out, Hide)?;
-    } else {
-        queue!(out, MoveTo(cx, cy), Show)?;
-    }
-
-    Ok(())
+    restore_terminal_cursor(out, rect, screen, suppress_cursor)
 }
 
 fn cell_to_paint(cell: Option<&Cell>) -> PaintCell {
@@ -1384,6 +1493,24 @@ mod tests {
     }
 
     #[test]
+    fn glint_spans_preserve_exact_unicode_row_width() {
+        for width in [1, 10, 18] {
+            let spans = sidebar_paint_spans(
+                "claude 👩‍💻",
+                width,
+                Color::Rgb {
+                    r: 48,
+                    g: 48,
+                    b: 48,
+                },
+                Some((true, 7)),
+            );
+            let text: String = spans.iter().map(|span| span.text.as_str()).collect();
+            assert_eq!(UnicodeWidthStr::width(text.as_str()), width);
+        }
+    }
+
+    #[test]
     fn tab_cards_have_no_blank_rows_between_them() {
         let tabs = [
             SidebarTab {
@@ -1433,7 +1560,7 @@ mod tests {
         let mut out = Vec::new();
         let mut cache = SidebarCache::default();
 
-        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
+        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, 0, false).unwrap();
         let footer_rows = sidebar_footer(18, 12).len();
         let footer_start = 12 - footer_rows;
 
@@ -1445,7 +1572,7 @@ mod tests {
         assert!(String::from_utf8_lossy(&out).contains("Alt+q quit"));
 
         out.clear();
-        draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
+        draw_sidebar(&mut out, &layout, &tabs, &mut cache, 0, false).unwrap();
         assert!(out.is_empty(), "unchanged sidebar should emit no bytes");
     }
 
@@ -1468,7 +1595,7 @@ mod tests {
         for rows in [12, 7, 5, 2, 1] {
             let layout = Layout::new(40, rows, true, 18);
             let mut out = Vec::new();
-            let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
+            let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, 0, false).unwrap();
 
             assert!(
                 map.row_tab.contains(&Some(6)),
@@ -1484,14 +1611,14 @@ mod tests {
 
         let one_row = Layout::new(40, 1, true, 18);
         let mut out = Vec::new();
-        let map = draw_sidebar(&mut out, &one_row, &tabs, &mut cache, true).unwrap();
+        let map = draw_sidebar(&mut out, &one_row, &tabs, &mut cache, 0, true).unwrap();
         assert_eq!(map.row_tab, vec![Some(6)]);
         assert!(String::from_utf8_lossy(&out).contains("agent-6"));
     }
 
     #[test]
-    fn agent_status_replaces_only_the_primary_card_line() {
-        let tabs = [SidebarTab {
+    fn agent_status_keeps_working_label_minimal() {
+        let mut tabs = [SidebarTab {
             primary: "node".into(),
             secondary: "~/projects/mux".into(),
             agent: Some(AgentStatus {
@@ -1503,7 +1630,75 @@ mod tests {
 
         let cards = build_cards(&tabs, 18);
         assert_eq!(cards[0].lines.len(), 2);
-        assert_eq!(cards[0].lines[0], (7, "● codex · working".into()));
+        assert_eq!(cards[0].lines[0], (7, "codex".into()));
         assert_eq!(cards[0].lines[1], (3, "~/projects/mux".into()));
+
+        tabs[0].agent.as_mut().unwrap().state = AgentState::Ready;
+        assert_eq!(
+            build_cards(&tabs, 18)[0].lines[0],
+            (6, "codex · ready".into())
+        );
+        tabs[0].agent.as_mut().unwrap().state = AgentState::Blocked;
+        assert_eq!(
+            build_cards(&tabs, 18)[0].lines[0],
+            (8, "codex · blocked".into())
+        );
+    }
+
+    #[test]
+    fn working_glint_changes_only_the_primary_row() {
+        let layout = Layout::new(40, 12, true, 18);
+        let tabs = [SidebarTab {
+            primary: "node".into(),
+            secondary: "~/projects/mux".into(),
+            agent: Some(AgentStatus {
+                kind: crate::agent::AgentKind::Codex,
+                state: AgentState::Working,
+            }),
+            active: true,
+        }];
+        let mut out = Vec::new();
+        let mut cache = SidebarCache::default();
+
+        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, 1, false).unwrap();
+        assert!(map.has_visible_working);
+        let primary = cache.rows[1].clone();
+        let secondary = cache.rows[2].clone();
+        let primary_text: String = primary
+            .spans
+            .iter()
+            .map(|span| span.text.as_str())
+            .collect();
+        assert_eq!(primary_text, pad_fit("codex", 18));
+
+        out.clear();
+        draw_sidebar(&mut out, &layout, &tabs, &mut cache, 1, false).unwrap();
+        assert!(out.is_empty());
+
+        draw_sidebar(&mut out, &layout, &tabs, &mut cache, 7, false).unwrap();
+        assert!(!out.is_empty());
+        assert_ne!(cache.rows[1], primary);
+        assert_eq!(cache.rows[2], secondary);
+    }
+
+    #[test]
+    fn offscreen_working_tab_does_not_keep_glint_running() {
+        let tabs: Vec<SidebarTab> = (0..8)
+            .map(|index| SidebarTab {
+                primary: format!("tab-{index}"),
+                secondary: String::new(),
+                agent: (index == 0).then_some(AgentStatus {
+                    kind: crate::agent::AgentKind::Codex,
+                    state: AgentState::Working,
+                }),
+                active: index == 6,
+            })
+            .collect();
+        let layout = Layout::new(40, 5, true, 18);
+        let mut out = Vec::new();
+        let mut cache = SidebarCache::default();
+
+        let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, 1, false).unwrap();
+        assert!(!map.has_visible_working);
     }
 }

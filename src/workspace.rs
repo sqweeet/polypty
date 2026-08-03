@@ -656,6 +656,24 @@ impl Workspace {
         Ok(())
     }
 
+    pub fn restore_active_cursor(
+        &self,
+        out: &mut impl Write,
+        area: TerminalRect,
+        suppress_cursor: bool,
+    ) -> Result<()> {
+        let layout = self.layout(area);
+        let Some((_, rect)) = layout.panes.iter().find(|(id, _)| *id == self.active) else {
+            return Ok(());
+        };
+        let pane = self
+            .panes
+            .iter()
+            .find(|pane| pane.tab.id == self.active)
+            .expect("active pane exists");
+        render::restore_terminal_cursor(out, *rect, pane.tab.screen(), suppress_cursor)
+    }
+
     pub fn write_active(&mut self, data: &[u8]) -> Result<()> {
         self.active_tab_mut().write_all(data)
     }

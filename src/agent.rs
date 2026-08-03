@@ -63,13 +63,6 @@ impl AgentState {
         }
     }
 
-    pub fn marker(self) -> char {
-        match self {
-            Self::Ready => '○',
-            Self::Working | Self::Blocked => '●',
-        }
-    }
-
     pub fn priority(self) -> u8 {
         match self {
             Self::Ready => 1,
