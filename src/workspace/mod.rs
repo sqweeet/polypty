@@ -1,5 +1,6 @@
 //! Workspace domain aggregate: panes, split geometry, and focus.
 
+mod control;
 mod focus;
 mod io;
 mod layout;

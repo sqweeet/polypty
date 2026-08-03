@@ -13,10 +13,13 @@ use crate::app::App;
 
 impl App {
     pub fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
+        if self.exit_dialog.visible() {
+            return self.handle_exit_dialog_key(key);
+        }
         let quit = match self.keymap.map_key(key) {
             Action::Quit => {
-                self.shutdown();
-                true
+                self.request_exit();
+                false
             }
             Action::NewTab => self.spawn_workspace().map(|_| false)?,
             Action::CloseTab => self.close_workspace(self.book.active_index())?,

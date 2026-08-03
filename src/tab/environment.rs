@@ -1,12 +1,23 @@
 use portable_pty::CommandBuilder;
+use std::path::Path;
 
-pub(super) fn child_command(id: u64, shell: Option<&str>) -> CommandBuilder {
+pub(super) fn child_command(
+    pane_id: u64,
+    tab_id: u64,
+    shell: Option<&str>,
+    control_socket: Option<&Path>,
+) -> CommandBuilder {
     let mut command = CommandBuilder::new(selected_shell(shell));
     for (name, value) in child_terminal_environment() {
         command.env(name, value);
     }
     command.env("MUX", "1");
-    command.env("MUX_TAB", id.to_string());
+    command.env("MUX_TAB", tab_id.to_string());
+    command.env("MUX_PANE", pane_id.to_string());
+    command.env("MUX_SESSION", crate::control::SESSION_NAME);
+    if let Some(path) = control_socket {
+        command.env("MUX_SOCKET", path.as_os_str());
+    }
     if let Ok(cwd) = std::env::current_dir() {
         command.cwd(cwd);
     }

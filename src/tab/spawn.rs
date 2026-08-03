@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{path::Path, time::Instant};
 
 use anyhow::Result;
 
@@ -8,8 +8,15 @@ use super::{
 };
 
 impl Tab {
-    pub fn spawn(id: u64, cols: u16, rows: u16, shell: Option<&str>) -> Result<Self> {
-        let transport = PtyTransport::spawn(id, cols, rows, shell)?;
+    pub fn spawn(
+        id: u64,
+        tab_id: u64,
+        cols: u16,
+        rows: u16,
+        shell: Option<&str>,
+        control_socket: Option<&Path>,
+    ) -> Result<Self> {
+        let transport = PtyTransport::spawn(id, tab_id, cols, rows, shell, control_socket)?;
         let now = Instant::now();
         let mut tab = Self {
             id,

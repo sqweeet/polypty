@@ -23,7 +23,7 @@ impl App {
         Ok(())
     }
 
-    pub(super) fn select_workspace(&mut self, index: usize) -> Result<bool> {
+    pub(in crate::app) fn select_workspace(&mut self, index: usize) -> Result<bool> {
         if !self.book.select(index) {
             return Ok(false);
         }

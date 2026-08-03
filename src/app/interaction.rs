@@ -1,3 +1,4 @@
+mod exit_dialog;
 mod keyboard;
 mod mouse;
 mod mouse_forward;

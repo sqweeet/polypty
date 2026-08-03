@@ -1,3 +1,4 @@
+mod dialog;
 mod divider;
 mod frame;
 mod geometry;
@@ -6,6 +7,7 @@ mod sidebar;
 mod terminal;
 mod workspace;
 
+pub(crate) use dialog::{draw_exit_dialog, exit_dialog_hit, ExitDialogButton};
 pub use divider::draw_dividers;
 pub use frame::{begin_sync, clear, enable_color_passthrough, end_sync};
 pub use geometry::Layout;

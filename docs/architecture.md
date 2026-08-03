@@ -7,6 +7,7 @@
 
 ```text
 main → runtime → App
+CLI → control client ⇄ Unix socket ⇄ runtime → App
 App → workspace, session ports, input, render, platform
 render::Presenter → workspace snapshot, core geometry, agent model
 workspace → TerminalSession port, core geometry, info, agent model
@@ -15,8 +16,9 @@ tab → PTY/VT adapters, info, agent
 info → agent model
 ```
 
-`runtime` также загружает пользовательский TOML-конфиг до входа в raw mode и
-передаёт готовые `Keymap`, sidebar settings и shell в composition root `App`.
+`runtime` также загружает пользовательский TOML-конфиг, поднимает control socket
+до входа в raw mode и передаёт готовые `Keymap`, sidebar settings, shell и
+socket context в composition root `App`.
 
 - `runtime` владеет временем жизни процесса и host-терминала, создаёт `App`
   и передаёт ей события. Бизнес-правил в event loop нет.
@@ -35,8 +37,9 @@ info → agent model
 
 | Объект | Ответственность и состав |
 |---|---|
-| `MuxRuntime` | Загружает `Config`, удерживает однопроцессный `InstanceGuard`, устанавливает `ShutdownLatch`, входит в `HostTerminal` через RAII и запускает `EventLoop` с `App`, stdout и `ResizeWatcher`. |
-| `App` | Содержит `WorkspaceBook`, `Viewport`, `FrameScheduler`, render-`Presenter`, заменяемые `Clipboard` и `SessionFactory`. Модули `session`, `interaction`, `polling`, `resize`, `draw` и `lifecycle` реализуют его façade. |
+| `MuxRuntime` | Загружает `Config`, удерживает `InstanceGuard` и `ControlServer`, устанавливает `ShutdownLatch`, входит в `HostTerminal` через RAII и запускает `EventLoop` с `App`, stdout и `ResizeWatcher`. |
+| `ControlServer` | Владеет Unix listener/thread и очередью JSON-запросов. Event loop выполняет запросы над `App`; socket-thread никогда не владеет приложением или PTY. |
+| `App` | Содержит `WorkspaceBook`, `Viewport`, `FrameScheduler`, exit-dialog state, render-`Presenter`, заменяемые `Clipboard` и `SessionFactory`. Модули `control`, `session`, `interaction`, `polling`, `resize`, `draw` и `lifecycle` реализуют его façade. |
 | `Workspace` | Один пункт сайдбара: `PaneStore`, `SplitTree` и `FocusModel`. Каждая pane содержит одну `TerminalSession`; `snapshot` проецирует состояние для renderer без передачи владения. |
 | `Tab` | Стандартная PTY-реализация `TerminalSession`: `PtyTransport`, `TerminalEmulator`, `SessionMetadata` и `AgentTracker`. Создаётся через `PtySessionFactory`. |
 | `render` | Façade над `Presenter`, geometry/frame/divider, terminal cell/frame/pen/painter/cache и sidebar model/card/viewport/frame/painter/cache. `Presenter` хранит per-workspace renderer с `TermCache` каждой pane и `SidebarPresentation` с cache/map/animation. |
@@ -117,6 +120,12 @@ command или конкретной ОС. Для сервисов terminal lifec
   Rollup сохраняет приоритет `blocked > working > ready`.
 - `HostTerminal` обязан восстановить terminal modes при обычном выходе,
   ошибке и сигнале завершения.
+- `HostLiveness` проверяется до чтения event и после readiness: исчезновение
+  host TTY или `POLLHUP/ERR/NVAL` завершает event loop даже без `SIGHUP`.
+- Control thread только декодирует/кодирует protocol и передаёт запрос через
+  channel; все мутации workspaces и PTY последовательно выполняет event loop.
+- Запрос выхода и закрытие последней вкладки не убивают PTY до явного
+  подтверждения в exit dialog; signal shutdown остаётся безусловным.
 - `InstanceGuard` запрещает параллельные и вложенные экземпляры; Unix-lock
   наследует время жизни процесса и не остаётся захваченным после crash.
 

@@ -25,10 +25,10 @@ cargo install --path .
 mux
 ```
 
-Одновременно для одного пользователя работает только один экземпляр `mux`.
-Повторный запуск (в том числе из pane уже работающего `mux`) завершится с
-понятной ошибкой; instance-lock автоматически освобождается при выходе или
-аварийном завершении процесса.
+Одновременно для одного пользователя работает только один интерактивный
+экземпляр `mux`. Повторный запуск без команды завершится с понятной ошибкой,
+но `mux <command>` работает как control-клиент уже запущенного экземпляра.
+Instance-lock автоматически освобождается при выходе или аварийном завершении.
 
 Нужен актуальный Rust toolchain и терминал с поддержкой ANSI/alternate screen.
 Для чтения буфера обмена установите хотя бы одну внешнюю утилиту:
@@ -61,6 +61,32 @@ close-pane = []
 
 Полный формат, имена действий и клавиш: [docs/configuration.md](docs/configuration.md).
 
+## CLI и агентские сессии
+
+Работающий mux поднимает приватный Unix control socket. Поэтому человек или
+coding agent из любой pane может управлять вкладками и читать их текущий экран,
+не перехватывая интерактивный терминал:
+
+```bash
+mux list-sessions
+mux list-tabs --json
+mux new-window
+mux capture-pane -t 2
+mux send-keys -t 2 --enter -- 'cargo test'
+mux select-window 2
+```
+
+Доступны команды `list-sessions` (`ls`), `list-tabs` (`list-windows`),
+`new-tab` (`new-window`), `select-tab`, `close-tab`, `capture-pane`,
+`send-keys` и `ping`. Вкладка адресуется номером, `active` или стабильным
+`@ID`; pane — числом или `%ID`. Флаг `--json` даёт стабильный машинный ответ.
+Без `-t`/`-p` команда из pane использует её `MUX_TAB`/`MUX_PANE`, а внешний
+клиент — активную pane интерфейса.
+
+Control server живёт вместе с открытым интерактивным UI. Закрытие host-терминала
+пока завершает PTY; daemon detach/reattach в эту версию не входит. Полный CLI,
+формат targets и переменные окружения: [docs/sessions.md](docs/sessions.md).
+
 ## Управление
 
 | Клавиши | Действие |
@@ -84,6 +110,9 @@ close-pane = []
 
 Остальные клавиши кодируются как terminal sequences и передаются активному
 дочернему PTY. Вставка учитывает bracketed-paste mode дочернего приложения.
+Выход и попытка закрыть последнюю вкладку сначала показывают подтверждение с
+кнопками `Cancel` и `Exit`. По умолчанию выбран безопасный `Cancel`; доступны
+стрелки/Tab + Enter, `y`/`n`, Escape и мышь.
 
 ### Мышь
 
@@ -148,11 +177,16 @@ resize не считаются работой. Submit, live footer и свежи
 
 ## Терминальная совместимость и устойчивость
 
-Каждый дочерний процесс получает фиксированные переменные:
+Каждый дочерний процесс получает terminal capabilities и контекст mux:
 
 ```text
 TERM=xterm-256color
 COLORTERM=truecolor
+MUX=1
+MUX_SESSION=main
+MUX_TAB=<stable tab id>
+MUX_PANE=<stable pane id>
+MUX_SOCKET=<absolute control socket path>
 ```
 
 Они не наследуются от host-терминала: дочерние TUI видят только возможности,
@@ -180,6 +214,8 @@ COLORTERM=truecolor
 При выходе, а на Unix также при `SIGTERM`, `SIGHUP`, `SIGINT` и `SIGQUIT`, mux
 завершает дочерние процессы и восстанавливает raw mode, alternate screen,
 mouse capture, bracketed paste, курсор и autowrap host-терминала.
+Если окно терминала исчезло без `SIGHUP`, mux дополнительно обнаруживает hangup
+или потерю host TTY и сам завершает PTY, control socket и instance-lock.
 
 ## Структура кода
 
@@ -187,6 +223,7 @@ mouse capture, bracketed paste, курсор и autowrap host-терминала
 расширения находится в [docs/architecture.md](docs/architecture.md).
 
 - `runtime/` управляет host-терминалом, сигналами и event loop;
+- `control/` содержит JSON-протокол, Unix socket server и tmux-подобный CLI;
 - `app/` оркестрирует workspaces, ввод, resize, sidebar и render-`Presenter`;
 - `workspace/` владеет terminal sessions, split-деревом и фокусом, отдавая
   read-only snapshot для кадра;

@@ -87,12 +87,8 @@ impl App {
         match close_policy::transition(self.book.len(), self.book.active_index(), index) {
             CloseTransition::Ignore => Ok(false),
             CloseTransition::Quit => {
-                self.book
-                    .get_mut(index)
-                    .expect("workspace exists")
-                    .kill_all();
-                self.frame.request_quit();
-                Ok(true)
+                self.request_exit();
+                Ok(false)
             }
             CloseTransition::Active(active) => self.remove_workspace(index, active),
         }

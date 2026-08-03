@@ -5,6 +5,9 @@ use crate::app::App;
 
 impl App {
     pub fn handle_mouse(&mut self, event: MouseEvent) -> Result<bool> {
+        if self.exit_dialog.visible() {
+            return self.handle_exit_dialog_mouse(event);
+        }
         let layout = self.layout();
         let area = layout.terminal_rect();
         match event.kind {

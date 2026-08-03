@@ -36,6 +36,9 @@ impl App {
         }
         self.paint_sidebar(&mut frame, &plan)?;
         self.paint_workspace(&mut frame, &plan)?;
+        if plan.dialog_visible {
+            render::draw_exit_dialog(&mut frame, plan.layout, plan.dialog_exit_selected)?;
+        }
 
         render::end_sync(&mut frame)?;
         output.write_all(&frame).context("write frame")?;
@@ -60,7 +63,7 @@ impl App {
     }
 
     fn paint_workspace(&mut self, frame: &mut Vec<u8>, plan: &FramePlan) -> Result<()> {
-        let hide_cursor = !plan.cursor_settled || plan.resize_in_progress;
+        let hide_cursor = !plan.cursor_settled || plan.resize_in_progress || plan.dialog_visible;
         if plan.need_workspace {
             if let Some(workspace) = self.book.get_mut(plan.active) {
                 let painted = self.presenter.draw_workspace(

@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use anyhow::{Context, Result};
 use portable_pty::{native_pty_system, PtySize};
 
@@ -6,7 +8,14 @@ use crate::tab::environment::child_command;
 use super::{input::PtyInputChannel, output::PtyOutputChannel, PtyTransport};
 
 impl PtyTransport {
-    pub fn spawn(id: u64, cols: u16, rows: u16, shell: Option<&str>) -> Result<Self> {
+    pub fn spawn(
+        id: u64,
+        tab_id: u64,
+        cols: u16,
+        rows: u16,
+        shell: Option<&str>,
+        control_socket: Option<&Path>,
+    ) -> Result<Self> {
         let pair = native_pty_system()
             .openpty(PtySize {
                 rows,
@@ -17,7 +26,7 @@ impl PtyTransport {
             .context("open pty")?;
         let child = pair
             .slave
-            .spawn_command(child_command(id, shell))
+            .spawn_command(child_command(id, tab_id, shell, control_socket))
             .context("spawn shell")?;
         drop(pair.slave);
 

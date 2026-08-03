@@ -13,6 +13,8 @@ use crate::{
 
 use super::App;
 
+type SpawnLog = Arc<Mutex<Vec<(u64, u64, u16, u16)>>>;
+
 struct EmptyClipboard;
 
 impl Clipboard for EmptyClipboard {
@@ -22,13 +24,19 @@ impl Clipboard for EmptyClipboard {
 }
 
 struct FakeFactory {
-    spawns: Arc<Mutex<Vec<(u64, u16, u16)>>>,
+    spawns: SpawnLog,
     kills: Option<Arc<AtomicUsize>>,
 }
 
 impl SessionFactory for FakeFactory {
-    fn spawn(&mut self, id: u64, cols: u16, rows: u16) -> Result<Box<dyn TerminalSession>> {
-        self.spawns.lock().unwrap().push((id, cols, rows));
+    fn spawn(
+        &mut self,
+        id: u64,
+        tab_id: u64,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Box<dyn TerminalSession>> {
+        self.spawns.lock().unwrap().push((id, tab_id, cols, rows));
         Ok(Box::new(FakeSession::new(
             id,
             cols,
@@ -115,7 +123,10 @@ fn application_spawns_sessions_through_the_injected_factory() {
     let mut app = App::with_services(100, 30, Box::new(EmptyClipboard), Box::new(factory)).unwrap();
     app.spawn_workspace().unwrap();
 
-    assert_eq!(*spawns.lock().unwrap(), vec![(1, 82, 30), (2, 82, 30)]);
+    assert_eq!(
+        *spawns.lock().unwrap(),
+        vec![(1, 1, 82, 30), (2, 2, 82, 30)]
+    );
     assert_eq!(app.book.len(), 2);
 }
 
@@ -132,3 +143,6 @@ fn dropping_application_kills_live_sessions() {
 
     assert_eq!(kills.load(Ordering::Relaxed), 1);
 }
+
+mod control;
+mod control_io;

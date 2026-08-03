@@ -74,13 +74,10 @@ fn rows(shortcuts: &SidebarShortcuts, compact: bool) -> Vec<(u8, String)> {
         key(&shortcuts.toggle_sidebar),
         key(&shortcuts.quit),
     ];
-    let mut rows = vec![(4, if compact { "keys" } else { "shortcuts" }.into())];
-    rows.extend(
-        keys.into_iter()
-            .zip(labels)
-            .map(|(key, label)| (5, format!("{key} {label}"))),
-    );
-    rows
+    keys.into_iter()
+        .zip(labels)
+        .map(|(key, label)| (5, format!("{key} {label}")))
+        .collect()
 }
 
 fn key(value: &Option<String>) -> String {

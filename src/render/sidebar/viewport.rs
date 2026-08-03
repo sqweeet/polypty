@@ -4,16 +4,7 @@ pub(super) fn sidebar_content_rows(
     cards: &[TabCard],
     content_height: usize,
 ) -> Vec<SidebarContentRow> {
-    let show_heading = content_height > usize::from(!cards.is_empty());
-    let mut rows = Vec::new();
-    if show_heading {
-        rows.push(SidebarContentRow::chrome(4, "tabs"));
-    }
-    rows.extend(card_viewport_rows(
-        cards,
-        content_height.saturating_sub(rows.len()),
-    ));
-    rows
+    card_viewport_rows(cards, content_height)
 }
 
 /// Select a compact, whole-card viewport containing the active tab.

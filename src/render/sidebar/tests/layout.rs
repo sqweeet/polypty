@@ -18,10 +18,10 @@ fn sidebar_footer_is_anchored_and_not_clickable() {
     let footer_rows = sidebar_footer(18, 12).len();
     let footer_start = 12 - footer_rows;
 
-    assert!(map.row_tab[0].is_none());
-    assert!(map.row_tab[1].is_some());
+    assert!(map.row_tab[0].is_some());
     assert!(map.row_tab[footer_start..].iter().all(Option::is_none));
-    assert!(String::from_utf8_lossy(&out).contains("tabs"));
+    assert!(!String::from_utf8_lossy(&out).contains("Tabs"));
+    assert!(!String::from_utf8_lossy(&out).contains("Shortcuts"));
     assert!(String::from_utf8_lossy(&out).contains("Alt+t new tab"));
     assert!(String::from_utf8_lossy(&out).contains("Alt+[/] tabs"));
     assert!(String::from_utf8_lossy(&out).contains("Alt+v/s split"));

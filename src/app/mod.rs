@@ -1,5 +1,7 @@
 mod close_policy;
+mod control;
 mod draw;
+mod exit_dialog;
 mod frame_scheduler;
 mod interaction;
 mod lifecycle;
@@ -17,6 +19,7 @@ use crate::platform::clipboard::{Clipboard, SystemClipboard};
 use crate::render::{Presenter, SidebarShortcuts};
 use crate::session::{PtySessionFactory, SessionFactory};
 
+use exit_dialog::ExitDialog;
 use frame_scheduler::FrameScheduler;
 use viewport::Viewport;
 use workspace_book::WorkspaceBook;
@@ -31,6 +34,7 @@ pub struct App {
     clipboard: Box<dyn Clipboard>,
     sessions: Box<dyn SessionFactory>,
     keymap: Keymap,
+    exit_dialog: ExitDialog,
 }
 
 impl App {
@@ -41,12 +45,13 @@ impl App {
         sidebar_visible: bool,
         sidebar_width: u16,
         shell: Option<String>,
+        control_socket: Option<std::path::PathBuf>,
     ) -> Result<Self> {
         Self::with_components(
             cols,
             rows,
             Box::new(SystemClipboard),
-            Box::new(PtySessionFactory::new(shell)),
+            Box::new(PtySessionFactory::new(shell, control_socket)),
             keymap,
             (sidebar_visible, sidebar_width),
         )
@@ -86,6 +91,7 @@ impl App {
             clipboard,
             sessions,
             keymap,
+            exit_dialog: ExitDialog::default(),
         };
         app.spawn_workspace()?;
         Ok(app)

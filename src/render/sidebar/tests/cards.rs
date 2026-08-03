@@ -28,7 +28,7 @@ fn tab_cards_have_no_blank_rows_between_them() {
         .iter()
         .flat_map(|card| &card.lines)
         .all(|(kind, _)| *kind != 0));
-    assert_eq!(sidebar_footer(18, 12)[0].1, "shortcuts");
+    assert_eq!(sidebar_footer(18, 12)[0].1, "Alt+t new tab");
 
     let long = [SidebarTab {
         key: 1,

@@ -16,8 +16,8 @@ fn working_glint_covers_both_rows_of_the_card() {
 
     let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
     assert_eq!(map.visible_glints(), &[(1, GlintFrame(10))]);
-    let primary = cache.rows[1].clone();
-    let secondary = cache.rows[2].clone();
+    let primary = cache.rows[0].clone();
+    let secondary = cache.rows[1].clone();
     let primary_text: String = primary
         .spans
         .iter()
@@ -32,8 +32,8 @@ fn working_glint_covers_both_rows_of_the_card() {
     tabs[0].glint_frame = Some(GlintFrame(20));
     draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
     assert!(!out.is_empty());
-    assert_ne!(cache.rows[1], primary);
-    assert_ne!(cache.rows[2], secondary);
+    assert_ne!(cache.rows[0], primary);
+    assert_ne!(cache.rows[1], secondary);
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn narrow_working_card_is_static_and_does_not_schedule_animation() {
 
     let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
     assert!(map.visible_glints().is_empty());
-    assert!(cache.rows[1].spans.iter().all(|span| {
+    assert!(cache.rows[0].spans.iter().all(|span| {
         span.bg
             == Color::Rgb {
                 r: 56,

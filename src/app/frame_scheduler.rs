@@ -56,6 +56,11 @@ impl FrameScheduler {
         self.invalidate();
     }
 
+    pub(super) fn request_hard_clear(&mut self) {
+        self.hard_clear = true;
+        self.request_full_draw();
+    }
+
     pub(super) fn request_quit(&mut self) {
         self.quit_requested = true;
     }

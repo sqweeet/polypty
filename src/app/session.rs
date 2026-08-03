@@ -12,14 +12,20 @@ impl App {
         self.viewport.layout()
     }
 
-    fn spawn_session(&mut self, cols: u16, rows: u16) -> Result<Box<dyn TerminalSession>> {
+    fn spawn_session(
+        &mut self,
+        tab_id: Option<u64>,
+        cols: u16,
+        rows: u16,
+    ) -> Result<Box<dyn TerminalSession>> {
         let id = self.book.allocate_pane_id();
-        self.sessions.spawn(id, cols.max(1), rows.max(1))
+        self.sessions
+            .spawn(id, tab_id.unwrap_or(id), cols.max(1), rows.max(1))
     }
 
     pub(super) fn spawn_workspace(&mut self) -> Result<()> {
         let area = self.layout().terminal_rect();
-        let tab = self.spawn_session(area.cols, area.rows)?;
+        let tab = self.spawn_session(None, area.cols, area.rows)?;
         self.book.push_and_select(Workspace::new(tab));
         self.frame.clear_cursor_settle();
         self.frame.request_full_draw();
@@ -33,7 +39,8 @@ impl App {
             .active()
             .map(|workspace| workspace.split_size(axis, area))
             .ok_or_else(|| anyhow::anyhow!("no active workspace"))?;
-        let tab = self.spawn_session(cols, rows)?;
+        let tab_id = self.book.active().map(Workspace::id);
+        let tab = self.spawn_session(tab_id, cols, rows)?;
         if !self
             .book
             .active_mut()

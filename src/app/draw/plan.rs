@@ -20,6 +20,8 @@ pub(super) struct FramePlan {
     pub(super) fingerprint: String,
     pub(super) need_sidebar: bool,
     pub(super) need_workspace: bool,
+    pub(super) dialog_visible: bool,
+    pub(super) dialog_exit_selected: bool,
 }
 
 impl FramePlan {
@@ -78,6 +80,8 @@ impl FramePlan {
             fingerprint,
             need_sidebar,
             need_workspace,
+            dialog_visible: app.exit_dialog.visible(),
+            dialog_exit_selected: app.exit_dialog.exit_selected(),
         }
     }
 }
