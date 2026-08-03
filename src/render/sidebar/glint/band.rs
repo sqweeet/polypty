@@ -2,6 +2,7 @@ use crossterm::style::Color;
 
 use super::GlintFrame;
 
+/// Where a card row sits inside the one slanted band shared by the whole card.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(in crate::render::sidebar) enum GlintRow {
     Flat,
@@ -9,15 +10,25 @@ pub(in crate::render::sidebar) enum GlintRow {
     Lower,
 }
 
+/// Terminal cells are about twice as tall as wide, so a two-column shift per
+/// text row reads as a ~45° slant on screen.
+const SLANT: f32 = 2.0;
+const CELL_ASPECT: f32 = 2.0;
+
 impl GlintRow {
-    fn offset(self, width: usize) -> f32 {
-        let slope = (width as f32 / 6.0).clamp(1.5, 3.0);
+    fn offset(self) -> f32 {
         match self {
             Self::Flat => 0.0,
-            Self::Upper => -slope / 2.0,
-            Self::Lower => slope / 2.0,
+            Self::Upper => -SLANT / 2.0,
+            Self::Lower => SLANT / 2.0,
         }
     }
+}
+
+/// Horizontal widening that keeps a slanted band as thick along its own normal
+/// as a flat one; without it the slant reads as a thinner, weaker streak.
+fn stretch() -> f32 {
+    (1.0 + (SLANT / CELL_ASPECT).powi(2)).sqrt()
 }
 
 pub(in crate::render::sidebar) fn working_glint_bg(
@@ -35,9 +46,13 @@ pub(in crate::render::sidebar) fn working_glint_bg(
         return gray(base);
     };
     let radius = (width as f32 / 5.5).clamp(1.5, 3.25);
-    let travel = width.saturating_sub(1) as f32 + radius * 2.0;
-    let center = -radius + progress * travel + row.offset(width);
-    let distance = (column as f32 - center).abs();
+    // Clearing `reach` on both ends lands the first and last sweep frame exactly
+    // on `base` for every row, so the sweep joins REST without a jump and both
+    // rows enter and leave together as one continuous band.
+    let reach = radius * stretch() + SLANT / 2.0;
+    let travel = width.saturating_sub(1) as f32 + reach * 2.0;
+    let center = -reach + progress * travel + row.offset();
+    let distance = (column as f32 - center).abs() / stretch();
     let feather = smooth_band(distance, radius);
     let core = smooth_band(distance, (radius * 0.42).max(0.75));
     let weight = feather * 0.65 + core * 0.35;

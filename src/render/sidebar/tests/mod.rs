@@ -17,6 +17,7 @@ use super::{draw_sidebar, GlintFrame, SidebarCache, SidebarTab};
 mod animation;
 mod badge;
 mod cards;
+mod glint_band;
 mod glint_math;
 mod glint_render;
 mod glint_timeline;
