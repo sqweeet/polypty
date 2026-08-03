@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc, Mutex,
+};
 
 use anyhow::Result;
 
@@ -20,12 +23,18 @@ impl Clipboard for EmptyClipboard {
 
 struct FakeFactory {
     spawns: Arc<Mutex<Vec<(u64, u16, u16)>>>,
+    kills: Option<Arc<AtomicUsize>>,
 }
 
 impl SessionFactory for FakeFactory {
     fn spawn(&mut self, id: u64, cols: u16, rows: u16) -> Result<Box<dyn TerminalSession>> {
         self.spawns.lock().unwrap().push((id, cols, rows));
-        Ok(Box::new(FakeSession::new(id, cols, rows)))
+        Ok(Box::new(FakeSession::new(
+            id,
+            cols,
+            rows,
+            self.kills.clone(),
+        )))
     }
 }
 
@@ -35,16 +44,18 @@ struct FakeSession {
     parser: vt100::Parser,
     alive: bool,
     dirty: bool,
+    kills: Option<Arc<AtomicUsize>>,
 }
 
 impl FakeSession {
-    fn new(id: u64, cols: u16, rows: u16) -> Self {
+    fn new(id: u64, cols: u16, rows: u16, kills: Option<Arc<AtomicUsize>>) -> Self {
         Self {
             id,
             info: TabInfo::default(),
             parser: vt100::Parser::new(rows, cols, 0),
             alive: true,
             dirty: true,
+            kills,
         }
     }
 }
@@ -79,6 +90,11 @@ impl TerminalSession for FakeSession {
         self.alive
     }
     fn kill(&mut self) {
+        if self.alive {
+            if let Some(kills) = &self.kills {
+                kills.fetch_add(1, Ordering::Relaxed);
+            }
+        }
         self.alive = false;
     }
     fn is_dirty(&self) -> bool {
@@ -94,10 +110,25 @@ fn application_spawns_sessions_through_the_injected_factory() {
     let spawns = Arc::new(Mutex::new(Vec::new()));
     let factory = FakeFactory {
         spawns: Arc::clone(&spawns),
+        kills: None,
     };
     let mut app = App::with_services(100, 30, Box::new(EmptyClipboard), Box::new(factory)).unwrap();
     app.spawn_workspace().unwrap();
 
     assert_eq!(*spawns.lock().unwrap(), vec![(1, 82, 30), (2, 82, 30)]);
     assert_eq!(app.book.len(), 2);
+}
+
+#[test]
+fn dropping_application_kills_live_sessions() {
+    let kills = Arc::new(AtomicUsize::new(0));
+    let factory = FakeFactory {
+        spawns: Arc::new(Mutex::new(Vec::new())),
+        kills: Some(Arc::clone(&kills)),
+    };
+    let app = App::with_services(100, 30, Box::new(EmptyClipboard), Box::new(factory)).unwrap();
+
+    drop(app);
+
+    assert_eq!(kills.load(Ordering::Relaxed), 1);
 }

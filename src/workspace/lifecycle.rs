@@ -38,7 +38,9 @@ impl Workspace {
 
     pub fn kill_all(&mut self) {
         for pane in self.panes.iter_mut() {
-            pane.session.kill();
+            if pane.session.is_alive() {
+                pane.session.kill();
+            }
         }
     }
 

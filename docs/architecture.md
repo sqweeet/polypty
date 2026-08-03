@@ -32,7 +32,7 @@ info → agent model
 
 | Объект | Ответственность и состав |
 |---|---|
-| `MuxRuntime` | Устанавливает `ShutdownLatch`, входит в `HostTerminal` через RAII и запускает `EventLoop` с `App`, stdout и `ResizeWatcher`. |
+| `MuxRuntime` | Удерживает однопроцессный `InstanceGuard`, устанавливает `ShutdownLatch`, входит в `HostTerminal` через RAII и запускает `EventLoop` с `App`, stdout и `ResizeWatcher`. |
 | `App` | Содержит `WorkspaceBook`, `Viewport`, `FrameScheduler`, render-`Presenter`, заменяемые `Clipboard` и `SessionFactory`. Модули `session`, `interaction`, `polling`, `resize`, `draw` и `lifecycle` реализуют его façade. |
 | `Workspace` | Один пункт сайдбара: `PaneStore`, `SplitTree` и `FocusModel`. Каждая pane содержит одну `TerminalSession`; `snapshot` проецирует состояние для renderer без передачи владения. |
 | `Tab` | Стандартная PTY-реализация `TerminalSession`: `PtyTransport`, `TerminalEmulator`, `SessionMetadata` и `AgentTracker`. Создаётся через `PtySessionFactory`. |
@@ -114,6 +114,8 @@ command или конкретной ОС. Для сервисов terminal lifec
   Rollup сохраняет приоритет `blocked > working > ready`.
 - `HostTerminal` обязан восстановить terminal modes при обычном выходе,
   ошибке и сигнале завершения.
+- `InstanceGuard` запрещает параллельные и вложенные экземпляры; Unix-lock
+  наследует время жизни процесса и не остаётся захваченным после crash.
 
 ## Тесты и архитектурный gate
 

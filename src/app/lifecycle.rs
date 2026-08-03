@@ -7,6 +7,12 @@ use super::{
     App,
 };
 
+impl Drop for App {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
 impl App {
     pub fn reap(&mut self) -> Result<bool> {
         if self.frame.quit_requested() {
