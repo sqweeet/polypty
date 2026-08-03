@@ -40,11 +40,13 @@ impl App {
         let area = layout.terminal_rect();
         if layout.sidebar_visible && event.column < layout.sidebar_width {
             if event.column.saturating_add(3) >= layout.sidebar_width {
-                self.viewport.begin_sidebar_drag();
-                return Ok(self.resize_sidebar_from(event.column));
+                self.clear_sidebar_pointer();
+                self.viewport
+                    .begin_sidebar_drag(event.column, layout.sidebar_width);
+                return Ok(true);
             }
-            if let Some(index) = self.presenter.sidebar_tab_at(event.column, event.row) {
-                return self.select_workspace(index);
+            if self.begin_sidebar_tab_press(event, layout) {
+                return Ok(true);
             }
             return Ok(false);
         }
@@ -63,7 +65,11 @@ impl App {
     }
 
     pub(super) fn resize_sidebar_from(&mut self, column: u16) -> bool {
-        if !self.viewport.set_sidebar_width(column.max(1)) {
+        let width = self
+            .viewport
+            .dragged_sidebar_width(column)
+            .unwrap_or(column.max(1));
+        if !self.viewport.set_sidebar_width(width) {
             return false;
         }
         self.stage_workspace_resize();

@@ -17,16 +17,19 @@ fn sidebar_footer_is_anchored_and_not_clickable() {
     let map = draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
     let footer_rows = sidebar_footer(18, 12).len();
     let footer_start = 12 - footer_rows;
+    let rendered = String::from_utf8_lossy(&out);
 
     assert!(map.row_tab[0].is_some());
     assert!(map.row_tab[footer_start..].iter().all(Option::is_none));
-    assert!(!String::from_utf8_lossy(&out).contains("Tabs"));
-    assert!(!String::from_utf8_lossy(&out).contains("Shortcuts"));
-    assert!(String::from_utf8_lossy(&out).contains("Alt+t new tab"));
-    assert!(String::from_utf8_lossy(&out).contains("Alt+[/] tabs"));
-    assert!(String::from_utf8_lossy(&out).contains("Alt+v/s split"));
-    assert!(String::from_utf8_lossy(&out).contains("Alt+hjkl pane"));
-    assert!(String::from_utf8_lossy(&out).contains("Alt+q quit"));
+    assert!(rendered.contains(" shell"));
+    assert!(rendered.contains(" ~/projects/mux"));
+    assert!(!rendered.contains("Tabs"));
+    assert!(!rendered.contains("Shortcuts"));
+    assert!(rendered.contains("Alt+t new tab"));
+    assert!(rendered.contains("Alt+[/] tabs"));
+    assert!(rendered.contains("Alt+v/s split"));
+    assert!(rendered.contains("Alt+hjkl pane"));
+    assert!(rendered.contains("Alt+q quit"));
 
     out.clear();
     draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();
@@ -89,4 +92,13 @@ fn sidebar_footer_reflects_configured_shortcuts() {
 
     assert!(text.contains("Ctrl+n new tab"));
     assert!(text.contains("— quit"));
+}
+
+#[test]
+fn sidebar_footer_can_be_hidden() {
+    let shortcuts = SidebarShortcuts {
+        visible: false,
+        ..SidebarShortcuts::default()
+    };
+    assert!(configured_footer(18, 12, &shortcuts).is_empty());
 }

@@ -146,3 +146,5 @@ fn dropping_application_kills_live_sessions() {
 
 mod control;
 mod control_io;
+mod shortcut_dialog;
+mod sidebar_menu;

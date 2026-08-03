@@ -1,21 +1,27 @@
-use std::{collections::BTreeMap, fs, path::PathBuf};
+mod store;
+
+use std::{collections::BTreeMap, path::PathBuf};
 
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
 
 use crate::input::Keymap;
 
+pub(crate) use store::save_sidebar_shortcuts;
+
 #[derive(Debug, Clone)]
 pub(crate) struct Config {
     pub keymap: Keymap,
     pub sidebar: SidebarConfig,
     pub shell: Option<String>,
+    pub source_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SidebarConfig {
     pub visible: bool,
     pub width: u16,
+    pub shortcuts: bool,
 }
 
 impl Default for Config {
@@ -25,26 +31,26 @@ impl Default for Config {
             sidebar: SidebarConfig {
                 visible: true,
                 width: 18,
+                shortcuts: true,
             },
             shell: None,
+            source_path: None,
         }
     }
 }
 
 impl Config {
     pub(crate) fn load() -> Result<Self> {
-        let explicit = std::env::var_os("MUX_CONFIG").map(PathBuf::from);
-        let Some(path) = explicit.clone().or_else(default_path) else {
+        let Some(source) = store::read()? else {
             return Ok(Self::default());
         };
-        let source = match fs::read_to_string(&path) {
-            Ok(source) => source,
-            Err(err) if err.kind() == std::io::ErrorKind::NotFound && explicit.is_none() => {
-                return Ok(Self::default());
-            }
-            Err(err) => return Err(err).with_context(|| format!("read {}", path.display())),
+        let mut config = match source.contents {
+            Some(contents) => Self::parse(&contents)
+                .with_context(|| format!("parse {}", source.path.display()))?,
+            None => Self::default(),
         };
-        Self::parse(&source).with_context(|| format!("parse {}", path.display()))
+        config.source_path = Some(source.path);
+        Ok(config)
     }
 
     fn parse(source: &str) -> Result<Self> {
@@ -69,8 +75,10 @@ impl Config {
             sidebar: SidebarConfig {
                 visible: raw.sidebar.visible,
                 width: raw.sidebar.width,
+                shortcuts: raw.sidebar.shortcuts,
             },
             shell: raw.shell,
+            source_path: None,
         })
     }
 }
@@ -88,6 +96,7 @@ struct FileConfig {
 struct SidebarFileConfig {
     visible: bool,
     width: u16,
+    shortcuts: bool,
 }
 
 impl Default for SidebarFileConfig {
@@ -95,6 +104,7 @@ impl Default for SidebarFileConfig {
         Self {
             visible: true,
             width: 18,
+            shortcuts: true,
         }
     }
 }
@@ -113,18 +123,6 @@ impl BindingValue {
             Self::Many(values) => values,
         }
     }
-}
-
-fn default_path() -> Option<PathBuf> {
-    if let Some(root) = std::env::var_os("XDG_CONFIG_HOME") {
-        let root = PathBuf::from(root);
-        if root.is_absolute() {
-            return Some(root.join("mux/config.toml"));
-        }
-    }
-    std::env::var_os("HOME")
-        .map(PathBuf::from)
-        .map(|home| home.join(".config/mux/config.toml"))
 }
 
 #[cfg(test)]

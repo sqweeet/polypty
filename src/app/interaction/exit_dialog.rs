@@ -37,12 +37,29 @@ impl App {
 
     pub(super) fn handle_exit_dialog_mouse(&mut self, event: MouseEvent) -> Result<bool> {
         let button = crate::render::exit_dialog_hit(self.layout(), event.column, event.row);
-        if matches!(event.kind, MouseEventKind::Moved | MouseEventKind::Drag(_)) {
-            let changed = match button {
-                Some(ExitDialogButton::Cancel) => self.exit_dialog.select_exit(false),
-                Some(ExitDialogButton::Exit) => self.exit_dialog.select_exit(true),
-                None => false,
+        if self.exit_dialog.is_pressed() {
+            return match event.kind {
+                MouseEventKind::Drag(MouseButton::Left) | MouseEventKind::Moved => {
+                    let changed = self.exit_dialog.update_press(button)
+                        | button.is_some_and(|button| self.select_exit_button(button));
+                    if changed {
+                        self.frame.invalidate();
+                    }
+                    Ok(changed)
+                }
+                MouseEventKind::Up(MouseButton::Left) => {
+                    let confirmed = self.exit_dialog.release(button);
+                    self.frame.invalidate();
+                    match confirmed {
+                        Some(button) => self.activate_exit_button(button),
+                        None => Ok(true),
+                    }
+                }
+                _ => Ok(false),
             };
+        }
+        if event.kind == MouseEventKind::Moved {
+            let changed = button.is_some_and(|button| self.select_exit_button(button));
             if changed {
                 self.frame.invalidate();
             }
@@ -51,14 +68,30 @@ impl App {
         if event.kind != MouseEventKind::Down(MouseButton::Left) {
             return Ok(false);
         }
-        match button {
-            Some(ExitDialogButton::Cancel) => self.cancel_exit(),
-            Some(ExitDialogButton::Exit) => {
-                self.confirm_exit();
-                return Ok(false);
-            }
-            None => return Ok(false),
-        }
+        let Some(button) = button else {
+            return Ok(false);
+        };
+        self.select_exit_button(button);
+        self.exit_dialog.press(button);
+        self.frame.invalidate();
         Ok(true)
+    }
+
+    fn select_exit_button(&mut self, button: ExitDialogButton) -> bool {
+        self.exit_dialog
+            .select_exit(button == ExitDialogButton::Exit)
+    }
+
+    fn activate_exit_button(&mut self, button: ExitDialogButton) -> Result<bool> {
+        match button {
+            ExitDialogButton::Cancel => {
+                self.cancel_exit();
+                Ok(true)
+            }
+            ExitDialogButton::Exit => {
+                self.confirm_exit();
+                Ok(false)
+            }
+        }
     }
 }

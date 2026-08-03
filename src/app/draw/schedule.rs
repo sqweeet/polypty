@@ -8,6 +8,12 @@ impl App {
         if self.frame.force_draw() || self.frame.hard_clear() || self.frame.viewport_dirty() {
             return true;
         }
+        if self.sidebar_menu.animation_due()
+            || self.shortcut_dialog.animation_due()
+            || self.exit_dialog.animation_due()
+        {
+            return true;
+        }
         if self.frame.waiting_for_resize_repaint(now) {
             return false;
         }

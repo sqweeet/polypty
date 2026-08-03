@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::{io::Write, time::Instant};
 
 use anyhow::Result;
 use crossterm::cursor::{Hide, MoveTo};
@@ -14,6 +14,7 @@ use super::footer::SidebarShortcuts;
 use super::frame::build_sidebar_frame;
 use super::hit_map::SidebarMap;
 use super::model::SidebarTab;
+use super::tab_motion::TabMotion;
 
 #[cfg(test)]
 pub fn draw_sidebar(
@@ -23,6 +24,9 @@ pub fn draw_sidebar(
     cache: &mut SidebarCache,
     force: bool,
 ) -> Result<SidebarMap> {
+    let now = Instant::now();
+    let mut motion = TabMotion::default();
+    motion.reconcile(tabs, now);
     draw_sidebar_with_shortcuts(
         out,
         layout,
@@ -30,6 +34,7 @@ pub fn draw_sidebar(
         cache,
         force,
         &SidebarShortcuts::default(),
+        (&motion, now),
     )
 }
 
@@ -40,12 +45,13 @@ pub(super) fn draw_sidebar_with_shortcuts(
     cache: &mut SidebarCache,
     force: bool,
     shortcuts: &SidebarShortcuts,
+    motion_frame: (&TabMotion, Instant),
 ) -> Result<SidebarMap> {
     if !layout.sidebar_visible || layout.sidebar_width == 0 {
         return Ok(SidebarMap::empty(layout.rows, layout.sidebar_width));
     }
 
-    let frame = build_sidebar_frame(layout, tabs, shortcuts);
+    let frame = build_sidebar_frame(layout, tabs, shortcuts, motion_frame.0, motion_frame.1);
     paint_changed_rows(out, layout.sidebar_width, &frame.rows, cache, force)?;
     Ok(frame.map)
 }

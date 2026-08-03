@@ -7,6 +7,10 @@ fn rgb(color: Color) -> (u8, u8, u8) {
     }
 }
 
+fn working_glint_bg(active: bool, frame: GlintFrame, column: usize, width: usize) -> Color {
+    super::working_glint_bg(active, frame, column, width, GlintRow::Flat)
+}
+
 #[test]
 fn glint_is_neutral_smooth_and_has_a_true_rest() {
     assert_eq!(
@@ -18,8 +22,8 @@ fn glint_is_neutral_smooth_and_has_a_true_rest() {
         (36, 36, 36)
     );
     assert_eq!(
-        rgb(working_glint_bg(true, GlintFrame(25), 8, 18)),
-        (70, 70, 70)
+        rgb(working_glint_bg(true, GlintFrame(25), 9, 18)),
+        (71, 71, 71)
     );
 
     for active in [false, true] {
@@ -51,4 +55,28 @@ fn glint_is_neutral_smooth_and_has_a_true_rest() {
         rgb(working_glint_bg(false, GlintFrame(20), 0, 5)),
         (42, 42, 42)
     );
+}
+
+#[test]
+fn glint_slants_between_card_rows() {
+    let brightest = |row| {
+        (0..18)
+            .max_by_key(|column| {
+                rgb(super::working_glint_bg(
+                    true,
+                    GlintFrame(10),
+                    *column,
+                    18,
+                    row,
+                ))
+                .0
+            })
+            .unwrap()
+    };
+
+    let upper = brightest(GlintRow::Upper);
+    let flat = brightest(GlintRow::Flat);
+    let lower = brightest(GlintRow::Lower);
+    assert!(upper < flat && flat < lower);
+    assert!(lower - upper >= 2);
 }

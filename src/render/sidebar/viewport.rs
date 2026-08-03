@@ -1,3 +1,4 @@
+use super::glint::GlintRow;
 use super::model::{SidebarContentRow, TabCard};
 
 pub(super) fn sidebar_content_rows(
@@ -43,7 +44,16 @@ pub(super) fn card_viewport_rows(cards: &[TabCard], capacity: usize) -> Vec<Side
 }
 
 fn card_rows(card: &TabCard) -> impl Iterator<Item = SidebarContentRow> + '_ {
+    let slanted = card.lines.len() > 1;
     card.lines
         .iter()
-        .map(|(kind, text)| SidebarContentRow::card(card, *kind, text))
+        .enumerate()
+        .map(move |(index, (kind, text))| {
+            let row = match (slanted, index) {
+                (true, 0) => GlintRow::Upper,
+                (true, _) => GlintRow::Lower,
+                _ => GlintRow::Flat,
+            };
+            SidebarContentRow::card(card, *kind, text, row)
+        })
 }

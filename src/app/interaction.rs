@@ -5,3 +5,7 @@ mod mouse_forward;
 mod mouse_middle;
 mod navigation;
 mod paste;
+mod shortcut_dialog;
+mod sidebar_menu;
+mod sidebar_menu_mouse;
+mod sidebar_tabs;

@@ -16,6 +16,13 @@ impl App {
         if self.exit_dialog.visible() {
             return self.handle_exit_dialog_key(key);
         }
+        if self.shortcut_dialog.visible() {
+            self.handle_shortcut_dialog_key(key);
+            return Ok(false);
+        }
+        if let Some(result) = self.route_sidebar_menu_key(key)? {
+            return Ok(result);
+        }
         let quit = match self.keymap.map_key(key) {
             Action::Quit => {
                 self.request_exit();

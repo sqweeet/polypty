@@ -87,11 +87,17 @@ fn dialog_hover_selects_and_click_activates_buttons() {
     let (cancel_x, row) = find_button(layout, ExitDialogButton::Cancel);
     let cancel = mouse(MouseEventKind::Down(MouseButton::Left), cancel_x, row);
     assert!(app.handle_mouse(cancel).unwrap());
+    assert!(app.exit_dialog.visible());
+    let cancel = mouse(MouseEventKind::Up(MouseButton::Left), cancel_x, row);
+    assert!(app.handle_mouse(cancel).unwrap());
     assert!(!app.exit_dialog.visible());
     assert_eq!(kills.load(Ordering::Relaxed), 0);
 
     app.request_exit();
     let exit = mouse(MouseEventKind::Down(MouseButton::Left), exit_x, row);
+    assert!(app.handle_mouse(exit).unwrap());
+    assert_eq!(kills.load(Ordering::Relaxed), 0);
+    let exit = mouse(MouseEventKind::Up(MouseButton::Left), exit_x, row);
     assert!(!app.handle_mouse(exit).unwrap());
     assert_eq!(kills.load(Ordering::Relaxed), 1);
 }

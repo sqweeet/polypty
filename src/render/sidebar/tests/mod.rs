@@ -10,7 +10,7 @@ use super::animation::SidebarAnimation;
 use super::badge::ready_badge_spans;
 use super::card::build_cards;
 use super::footer::{configured_footer, sidebar_footer, SidebarShortcuts};
-use super::glint::{sidebar_paint_spans, working_glint_bg};
+use super::glint::{sidebar_paint_spans, working_glint_bg, GlintRow};
 use super::text::pad_fit;
 use super::{draw_sidebar, GlintFrame, SidebarCache, SidebarTab};
 
@@ -22,4 +22,5 @@ mod glint_render;
 mod glint_timeline;
 mod labels;
 mod layout;
+mod motion;
 mod spans;

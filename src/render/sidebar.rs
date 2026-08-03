@@ -10,6 +10,7 @@ mod model;
 mod painter;
 mod palette;
 mod presentation;
+mod tab_motion;
 mod text;
 mod viewport;
 

@@ -1,5 +1,6 @@
 #[derive(Debug, Clone)]
 pub(crate) struct SidebarShortcuts {
+    pub visible: bool,
     pub new_tab: Option<String>,
     pub close_tab: Option<String>,
     pub next_tab: Option<String>,
@@ -14,6 +15,7 @@ pub(crate) struct SidebarShortcuts {
 impl Default for SidebarShortcuts {
     fn default() -> Self {
         Self {
+            visible: true,
             new_tab: Some("Alt+t".into()),
             close_tab: Some("Alt+w".into()),
             next_tab: Some("Alt+[/]".into()),
@@ -37,6 +39,9 @@ pub(super) fn configured_footer(
     height: usize,
     shortcuts: &SidebarShortcuts,
 ) -> Vec<(u8, String)> {
+    if !shortcuts.visible {
+        return Vec::new();
+    }
     let full = rows(shortcuts, false);
     let max_rows = height.saturating_sub(3).min(full.len());
     if max_rows < 2 {

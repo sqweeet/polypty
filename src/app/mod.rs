@@ -8,7 +8,10 @@ mod lifecycle;
 mod polling;
 mod resize;
 mod session;
+mod shortcut_dialog;
+mod sidebar_menu;
 mod timing;
+mod ui_animation;
 mod viewport;
 mod workspace_book;
 
@@ -21,6 +24,8 @@ use crate::session::{PtySessionFactory, SessionFactory};
 
 use exit_dialog::ExitDialog;
 use frame_scheduler::FrameScheduler;
+use shortcut_dialog::ShortcutDialog;
+use sidebar_menu::SidebarMenu;
 use viewport::Viewport;
 use workspace_book::WorkspaceBook;
 
@@ -35,6 +40,10 @@ pub struct App {
     sessions: Box<dyn SessionFactory>,
     keymap: Keymap,
     exit_dialog: ExitDialog,
+    sidebar_menu: SidebarMenu,
+    shortcut_dialog: ShortcutDialog,
+    shortcuts_visible: bool,
+    config_path: Option<std::path::PathBuf>,
 }
 
 impl App {
@@ -42,10 +51,10 @@ impl App {
         cols: u16,
         rows: u16,
         keymap: Keymap,
-        sidebar_visible: bool,
-        sidebar_width: u16,
+        sidebar: (bool, u16, bool),
         shell: Option<String>,
         control_socket: Option<std::path::PathBuf>,
+        config_path: Option<std::path::PathBuf>,
     ) -> Result<Self> {
         Self::with_components(
             cols,
@@ -53,7 +62,8 @@ impl App {
             Box::new(SystemClipboard),
             Box::new(PtySessionFactory::new(shell, control_socket)),
             keymap,
-            (sidebar_visible, sidebar_width),
+            sidebar,
+            config_path,
         )
     }
 
@@ -70,7 +80,8 @@ impl App {
             clipboard,
             sessions,
             Keymap::default(),
-            (true, 18),
+            (true, 18, true),
+            None,
         )
     }
 
@@ -80,9 +91,10 @@ impl App {
         clipboard: Box<dyn Clipboard>,
         sessions: Box<dyn SessionFactory>,
         keymap: Keymap,
-        sidebar: (bool, u16),
+        sidebar: (bool, u16, bool),
+        config_path: Option<std::path::PathBuf>,
     ) -> Result<Self> {
-        let shortcuts = sidebar_shortcuts(&keymap);
+        let shortcuts = sidebar_shortcuts(&keymap, sidebar.2);
         let mut app = Self {
             book: WorkspaceBook::default(),
             viewport: Viewport::configured(cols, rows, sidebar.0, sidebar.1),
@@ -92,16 +104,21 @@ impl App {
             sessions,
             keymap,
             exit_dialog: ExitDialog::default(),
+            sidebar_menu: SidebarMenu::default(),
+            shortcut_dialog: ShortcutDialog::default(),
+            shortcuts_visible: sidebar.2,
+            config_path,
         };
         app.spawn_workspace()?;
         Ok(app)
     }
 }
 
-fn sidebar_shortcuts(keymap: &Keymap) -> SidebarShortcuts {
+fn sidebar_shortcuts(keymap: &Keymap, visible: bool) -> SidebarShortcuts {
     use crate::input::Action;
 
     SidebarShortcuts {
+        visible,
         new_tab: keymap.binding_label(Action::NewTab),
         close_tab: keymap.binding_label(Action::CloseTab),
         next_tab: keymap.binding_label(Action::NextTab),

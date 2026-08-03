@@ -1,3 +1,5 @@
+mod band;
+
 use std::time::Duration;
 
 use crossterm::style::Color;
@@ -6,6 +8,7 @@ use unicode_width::UnicodeWidthStr;
 
 use super::cache::SidebarPaintSpan;
 use super::text::pad_fit;
+pub(super) use band::{working_glint_bg, GlintRow};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GlintFrame(pub(super) u8);
@@ -31,49 +34,12 @@ impl GlintFrame {
     }
 }
 
-pub(super) fn working_glint_bg(
-    active: bool,
-    frame: GlintFrame,
-    column: usize,
-    width: usize,
-) -> Color {
-    let (base, target) = if active { (48u8, 72u8) } else { (36u8, 54u8) };
-    if width < 6 {
-        let lift = if active { 56 } else { 42 };
-        return Color::Rgb {
-            r: lift,
-            g: lift,
-            b: lift,
-        };
-    }
-    let Some(progress) = frame.progress() else {
-        return Color::Rgb {
-            r: base,
-            g: base,
-            b: base,
-        };
-    };
-
-    let radius = (width as f32 / 4.0).clamp(1.5, 4.0);
-    let last_column = width.saturating_sub(1) as f32;
-    let center = -radius + progress * (last_column + radius * 2.0);
-    let distance = (column as f32 - center).abs();
-    let linear = (1.0 - distance / radius).clamp(0.0, 1.0);
-    let weight = linear * linear * (3.0 - 2.0 * linear);
-    let value = (f32::from(base) + f32::from(target - base) * weight).round() as u8;
-    Color::Rgb {
-        r: value,
-        g: value,
-        b: value,
-    }
-}
-
 pub(super) fn sidebar_paint_spans(
     label: &str,
     width: usize,
     base_bg: Color,
     base_fg: Color,
-    glint: Option<(bool, GlintFrame)>,
+    glint: Option<(bool, GlintFrame, GlintRow)>,
 ) -> Vec<SidebarPaintSpan> {
     let padded = pad_fit(label, width);
     let mut spans: Vec<SidebarPaintSpan> = Vec::new();
@@ -87,7 +53,13 @@ pub(super) fn sidebar_paint_spans(
             continue;
         }
         let bg = glint
-            .map(|(active, frame)| working_glint_bg(active, frame, column, width))
+            .map(|(active, frame, row)| {
+                shifted_glint(
+                    base_bg,
+                    working_glint_bg(active, frame, column, width, row),
+                    active,
+                )
+            })
             .unwrap_or(base_bg);
         if let Some(span) = spans
             .last_mut()
@@ -104,4 +76,32 @@ pub(super) fn sidebar_paint_spans(
         column = column.saturating_add(grapheme_width);
     }
     spans
+}
+
+fn shifted_glint(base: Color, glint: Color, active: bool) -> Color {
+    let standard = if active { 48 } else { 36 };
+    let (
+        Color::Rgb { r, g, b },
+        Color::Rgb {
+            r: gr,
+            g: gg,
+            b: gb,
+        },
+    ) = (base, glint)
+    else {
+        return glint;
+    };
+    Color::Rgb {
+        r: shift_channel(r, gr, standard),
+        g: shift_channel(g, gg, standard),
+        b: shift_channel(b, gb, standard),
+    }
+}
+
+fn shift_channel(base: u8, glint: u8, standard: u8) -> u8 {
+    if glint >= standard {
+        base.saturating_add(glint - standard)
+    } else {
+        base.saturating_sub(standard - glint)
+    }
 }

@@ -1,9 +1,12 @@
+mod interaction;
+
 use std::{io::Write, time::Instant};
 
 use anyhow::Result;
 
 use crate::{agent::AgentState, render::Layout};
 
+use super::tab_motion::TabMotion;
 use super::{
     animation::SidebarAnimation, footer::SidebarShortcuts, painter::draw_sidebar_with_shortcuts,
     GlintFrame, SidebarCache, SidebarMap, SidebarTab,
@@ -14,6 +17,7 @@ pub(in crate::render) struct SidebarPresentation {
     cache: SidebarCache,
     animation: SidebarAnimation,
     map: SidebarMap,
+    motion: TabMotion,
     shortcuts: SidebarShortcuts,
 }
 
@@ -30,6 +34,7 @@ impl SidebarPresentation {
             cache: SidebarCache::default(),
             animation: SidebarAnimation::default(),
             map: SidebarMap::default(),
+            motion: TabMotion::default(),
             shortcuts,
         }
     }
@@ -41,6 +46,13 @@ impl SidebarPresentation {
 
     pub(in crate::render) fn invalidate_content(&mut self) {
         self.fingerprint.clear();
+    }
+
+    pub(in crate::render) fn set_shortcuts_visible(&mut self, visible: bool) {
+        if self.shortcuts.visible != visible {
+            self.shortcuts.visible = visible;
+            self.invalidate();
+        }
     }
 
     pub(in crate::render) fn reconcile<I>(&mut self, states: I, now: Instant) -> bool
@@ -57,6 +69,7 @@ impl SidebarPresentation {
 
     pub(in crate::render) fn frame_due(&self, now: Instant) -> bool {
         self.animation.frame_due(&self.map, now)
+            || self.motion.frame_due(self.map.visible_tabs(), now)
     }
 
     pub(in crate::render) fn fingerprint(&self) -> &str {
@@ -75,6 +88,8 @@ impl SidebarPresentation {
         fingerprint: &str,
         hard_clear: bool,
     ) -> Result<()> {
+        let now = Instant::now();
+        self.motion.reconcile(tabs, now);
         self.map = draw_sidebar_with_shortcuts(
             output,
             layout,
@@ -82,7 +97,9 @@ impl SidebarPresentation {
             &mut self.cache,
             hard_clear,
             &self.shortcuts,
+            (&self.motion, now),
         )?;
+        self.motion.mark_frame(self.map.visible_tabs(), now);
         self.fingerprint.clear();
         self.fingerprint.push_str(fingerprint);
         Ok(())
@@ -90,6 +107,7 @@ impl SidebarPresentation {
 
     pub(in crate::render) fn clear(&mut self) {
         self.map = SidebarMap::default();
+        self.clear_pointer(Instant::now());
         self.invalidate();
     }
 }

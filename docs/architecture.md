@@ -18,7 +18,8 @@ info → agent model
 
 `runtime` также загружает пользовательский TOML-конфиг, поднимает control socket
 до входа в raw mode и передаёт готовые `Keymap`, sidebar settings, shell и
-socket context в composition root `App`.
+socket context в composition root `App`. Путь исходного конфига передаётся для
+точечного format-preserving сохранения пользовательских sidebar-настроек.
 
 - `runtime` владеет временем жизни процесса и host-терминала, создаёт `App`
   и передаёт ей события. Бизнес-правил в event loop нет.
@@ -39,7 +40,7 @@ socket context в composition root `App`.
 |---|---|
 | `MuxRuntime` | Загружает `Config`, удерживает `InstanceGuard` и `ControlServer`, устанавливает `ShutdownLatch`, входит в `HostTerminal` через RAII и запускает `EventLoop` с `App`, stdout и `ResizeWatcher`. |
 | `ControlServer` | Владеет Unix listener/thread и очередью JSON-запросов. Event loop выполняет запросы над `App`; socket-thread никогда не владеет приложением или PTY. |
-| `App` | Содержит `WorkspaceBook`, `Viewport`, `FrameScheduler`, exit-dialog state, render-`Presenter`, заменяемые `Clipboard` и `SessionFactory`. Модули `control`, `session`, `interaction`, `polling`, `resize`, `draw` и `lifecycle` реализуют его façade. |
+| `App` | Содержит `WorkspaceBook`, `Viewport`, `FrameScheduler`, состояния exit/preference/context UI, render-`Presenter`, заменяемые `Clipboard` и `SessionFactory`. Модули `control`, `session`, `interaction`, `polling`, `resize`, `draw` и `lifecycle` реализуют его façade. |
 | `Workspace` | Один пункт сайдбара: `PaneStore`, `SplitTree` и `FocusModel`. Каждая pane содержит одну `TerminalSession`; `snapshot` проецирует состояние для renderer без передачи владения. |
 | `Tab` | Стандартная PTY-реализация `TerminalSession`: `PtyTransport`, `TerminalEmulator`, `SessionMetadata` и `AgentTracker`. Создаётся через `PtySessionFactory`. |
 | `render` | Façade над `Presenter`, geometry/frame/divider, terminal cell/frame/pen/painter/cache и sidebar model/card/viewport/frame/painter/cache. `Presenter` хранит per-workspace renderer с `TermCache` каждой pane и `SidebarPresentation` с cache/map/animation. |

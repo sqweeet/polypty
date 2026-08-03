@@ -36,13 +36,46 @@ impl App {
         }
         self.paint_sidebar(&mut frame, &plan)?;
         self.paint_workspace(&mut frame, &plan)?;
+        if let Some(menu) = plan.sidebar_menu {
+            render::draw_sidebar_menu(&mut frame, plan.layout, menu)?;
+        }
+        if let Some(dialog) = plan.shortcut_dialog {
+            render::draw_shortcut_dialog(&mut frame, plan.layout, dialog)?;
+        }
         if plan.dialog_visible {
-            render::draw_exit_dialog(&mut frame, plan.layout, plan.dialog_exit_selected)?;
+            render::draw_exit_dialog(
+                &mut frame,
+                plan.layout,
+                plan.dialog_exit_selected,
+                plan.dialog_opacity,
+                plan.dialog_pressed,
+                plan.dialog_press_opacity,
+                plan.dialog_selection_opacity,
+            )?;
         }
 
         render::end_sync(&mut frame)?;
         output.write_all(&frame).context("write frame")?;
         output.flush().context("flush stdout")?;
+        self.sidebar_menu.mark_animation_frame(
+            plan.sidebar_menu.map(|view| view.opacity),
+            plan.sidebar_menu
+                .filter(|view| view.pressed.is_some())
+                .map(|view| view.press_opacity),
+        );
+        self.shortcut_dialog.mark_animation_frame(
+            plan.shortcut_dialog.map(|view| view.opacity),
+            plan.shortcut_dialog
+                .filter(|view| view.pressed.is_some())
+                .map(|view| view.press_opacity),
+            plan.shortcut_dialog
+                .map(|view| (view.session_opacity, view.always_opacity)),
+        );
+        self.exit_dialog.mark_animation_frame(
+            plan.dialog_visible.then_some(plan.dialog_opacity),
+            plan.dialog_pressed.map(|_| plan.dialog_press_opacity),
+            plan.dialog_visible.then_some(plan.dialog_selection_opacity),
+        );
         self.frame.finish_frame(plan.need_cursor_restore);
         Ok(())
     }
@@ -63,7 +96,11 @@ impl App {
     }
 
     fn paint_workspace(&mut self, frame: &mut Vec<u8>, plan: &FramePlan) -> Result<()> {
-        let hide_cursor = !plan.cursor_settled || plan.resize_in_progress || plan.dialog_visible;
+        let hide_cursor = !plan.cursor_settled
+            || plan.resize_in_progress
+            || plan.dialog_visible
+            || plan.sidebar_menu.is_some()
+            || plan.shortcut_dialog.is_some();
         if plan.need_workspace {
             if let Some(workspace) = self.book.get_mut(plan.active) {
                 let painted = self.presenter.draw_workspace(

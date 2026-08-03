@@ -9,6 +9,7 @@ pub struct SidebarMap {
     pub row_tab: Vec<Option<usize>>,
     pub width: u16,
     visible_glints: Vec<(u64, GlintFrame)>,
+    visible_tabs: Vec<u64>,
 }
 
 impl SidebarMap {
@@ -23,17 +24,25 @@ impl SidebarMap {
         &self.visible_glints
     }
 
+    pub(super) fn visible_tabs(&self) -> &[u64] {
+        &self.visible_tabs
+    }
+
     pub(super) fn empty(rows: u16, width: u16) -> Self {
         Self {
             row_tab: vec![None; usize::from(rows)],
             width,
             visible_glints: Vec::new(),
+            visible_tabs: Vec::new(),
         }
     }
 
     pub(super) fn record(&mut self, row_index: usize, row: &SidebarContentRow) {
         if let Some(tab_idx) = row.tab_idx {
             self.row_tab[row_index] = Some(tab_idx);
+        }
+        if let Some(key) = row.key.filter(|key| !self.visible_tabs.contains(key)) {
+            self.visible_tabs.push(key);
         }
         if row.agent_state != Some(AgentState::Working) || self.width < 6 {
             return;

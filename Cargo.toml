@@ -17,6 +17,7 @@ unicode-width = "0.2"
 unicode-segmentation = "1.12"
 signal-hook = "0.3"
 toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }
+toml_edit = "0.25"
 
 [profile.release]
 lto = true

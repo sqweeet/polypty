@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use crate::{
     core::geometry::TerminalRect,
-    render::{Layout, SidebarTab},
+    render::{ExitDialogButton, Layout, ShortcutDialogView, SidebarMenuView, SidebarTab},
 };
 
 use super::fingerprint::sidebar_fingerprint;
@@ -22,6 +22,12 @@ pub(super) struct FramePlan {
     pub(super) need_workspace: bool,
     pub(super) dialog_visible: bool,
     pub(super) dialog_exit_selected: bool,
+    pub(super) dialog_opacity: u8,
+    pub(super) dialog_pressed: Option<ExitDialogButton>,
+    pub(super) dialog_press_opacity: u8,
+    pub(super) dialog_selection_opacity: (u8, u8),
+    pub(super) sidebar_menu: Option<SidebarMenuView>,
+    pub(super) shortcut_dialog: Option<ShortcutDialogView>,
 }
 
 impl FramePlan {
@@ -68,6 +74,8 @@ impl FramePlan {
                 app.presenter
                     .workspace_needs_draw(&workspace.snapshot(area))
             });
+        let (dialog_pressed, dialog_press_opacity) = app.exit_dialog.press_visual(now);
+        let dialog_selection_opacity = app.exit_dialog.selection_visual(now);
         Self {
             layout,
             area,
@@ -82,6 +90,12 @@ impl FramePlan {
             need_workspace,
             dialog_visible: app.exit_dialog.visible(),
             dialog_exit_selected: app.exit_dialog.exit_selected(),
+            dialog_opacity: app.exit_dialog.opacity(now),
+            dialog_pressed,
+            dialog_press_opacity,
+            dialog_selection_opacity,
+            sidebar_menu: app.sidebar_menu.view_at(app.shortcuts_visible, now),
+            shortcut_dialog: app.shortcut_dialog.view_at(now),
         }
     }
 }

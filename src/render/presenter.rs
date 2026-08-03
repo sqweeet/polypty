@@ -1,3 +1,5 @@
+mod sidebar_tabs;
+
 use std::{collections::BTreeMap, io::Write, time::Instant};
 
 use anyhow::Result;
@@ -35,6 +37,10 @@ impl Presenter {
 
     pub(crate) fn invalidate_sidebar_content(&mut self) {
         self.sidebar.invalidate_content();
+    }
+
+    pub(crate) fn set_sidebar_shortcuts_visible(&mut self, visible: bool) {
+        self.sidebar.set_shortcuts_visible(visible);
     }
 
     pub(crate) fn reconcile_sidebar<I>(&mut self, states: I, now: Instant) -> bool

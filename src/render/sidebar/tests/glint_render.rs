@@ -23,7 +23,7 @@ fn working_glint_covers_both_rows_of_the_card() {
         .iter()
         .map(|span| span.text.as_str())
         .collect();
-    assert_eq!(primary_text, pad_fit("codex", 18));
+    assert_eq!(primary_text, pad_fit(" codex", 18));
 
     out.clear();
     draw_sidebar(&mut out, &layout, &tabs, &mut cache, false).unwrap();

@@ -8,7 +8,7 @@ pub(super) struct Viewport {
     rows: u16,
     sidebar_visible: bool,
     sidebar_width: u16,
-    dragging_sidebar: bool,
+    sidebar_drag_offset: Option<u16>,
 }
 
 impl Viewport {
@@ -16,13 +16,17 @@ impl Viewport {
         self.sidebar_visible
     }
     pub(super) fn is_dragging_sidebar(&self) -> bool {
-        self.dragging_sidebar
+        self.sidebar_drag_offset.is_some()
     }
-    pub(super) fn begin_sidebar_drag(&mut self) {
-        self.dragging_sidebar = true;
+    pub(super) fn begin_sidebar_drag(&mut self, column: u16, visible_width: u16) {
+        self.sidebar_drag_offset = Some(visible_width.saturating_sub(column));
     }
     pub(super) fn end_sidebar_drag(&mut self) {
-        self.dragging_sidebar = false;
+        self.sidebar_drag_offset = None;
+    }
+    pub(super) fn dragged_sidebar_width(&self, column: u16) -> Option<u16> {
+        self.sidebar_drag_offset
+            .map(|offset| column.saturating_add(offset))
     }
 
     pub(super) fn configured(
@@ -36,7 +40,7 @@ impl Viewport {
             rows: rows.max(1),
             sidebar_visible,
             sidebar_width: sidebar_width.max(SIDEBAR_MIN),
-            dragging_sidebar: false,
+            sidebar_drag_offset: None,
         }
     }
 
@@ -88,5 +92,22 @@ impl Viewport {
 
     fn sidebar_max(&self) -> u16 {
         self.cols.saturating_sub(TERM_MIN_COLS).max(SIDEBAR_MIN)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sidebar_drag_preserves_the_grab_offset() {
+        let mut viewport = Viewport::configured(100, 30, true, 18);
+        viewport.begin_sidebar_drag(15, 18);
+
+        assert_eq!(viewport.dragged_sidebar_width(15), Some(18));
+        assert_eq!(viewport.dragged_sidebar_width(20), Some(23));
+
+        viewport.end_sidebar_drag();
+        assert_eq!(viewport.dragged_sidebar_width(20), None);
     }
 }

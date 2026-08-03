@@ -1,8 +1,11 @@
+use std::time::Instant;
+
 use unicode_width::UnicodeWidthStr;
 
 use crate::agent::{AgentState, AgentStatus};
 
 use super::model::{SidebarTab, TabCard};
+use super::tab_motion::{TabMotion, TabVisual};
 use super::text::{pad_fit, wrap_text};
 
 fn agent_primary_label(status: AgentStatus, width: usize) -> String {
@@ -37,7 +40,27 @@ fn agent_primary_label(status: AgentStatus, width: usize) -> String {
     format!("{identity}{SUFFIX}")
 }
 
+#[cfg(test)]
 pub(super) fn build_cards(tabs: &[SidebarTab], inner_width: usize) -> Vec<TabCard> {
+    build_cards_with(tabs, inner_width, |tab| TabVisual::settled(tab.active))
+}
+
+pub(super) fn build_animated_cards(
+    tabs: &[SidebarTab],
+    inner_width: usize,
+    motion: &TabMotion,
+    now: Instant,
+) -> Vec<TabCard> {
+    build_cards_with(tabs, inner_width, |tab| {
+        motion.visual(tab.key, tab.active, now)
+    })
+}
+
+fn build_cards_with(
+    tabs: &[SidebarTab],
+    inner_width: usize,
+    visual: impl Fn(&SidebarTab) -> TabVisual,
+) -> Vec<TabCard> {
     let text_width = inner_width.max(1);
     tabs.iter()
         .enumerate()
@@ -63,6 +86,7 @@ pub(super) fn build_cards(tabs: &[SidebarTab], inner_width: usize) -> Vec<TabCar
                 active: tab.active,
                 agent_state: tab.agent.map(|status| status.state),
                 glint_frame: tab.glint_frame,
+                visual: visual(tab),
                 lines,
             }
         })

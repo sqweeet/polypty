@@ -27,8 +27,20 @@ pub(crate) fn draw_exit_dialog(
     out: &mut impl Write,
     layout: Layout,
     exit_selected: bool,
+    opacity: u8,
+    pressed: Option<ExitDialogButton>,
+    press_opacity: u8,
+    selection_opacity: (u8, u8),
 ) -> Result<()> {
-    painter::draw(out, geometry(layout), exit_selected)
+    painter::draw(
+        out,
+        geometry(layout),
+        exit_selected,
+        opacity,
+        pressed,
+        press_opacity,
+        selection_opacity,
+    )
 }
 
 pub(crate) fn exit_dialog_hit(layout: Layout, column: u16, row: u16) -> Option<ExitDialogButton> {
@@ -85,7 +97,16 @@ mod tests {
     #[test]
     fn dialog_frame_contains_message_and_two_buttons() {
         let mut output = Vec::new();
-        draw_exit_dialog(&mut output, Layout::new(80, 24, true, 18), false).unwrap();
+        draw_exit_dialog(
+            &mut output,
+            Layout::new(80, 24, true, 18),
+            false,
+            255,
+            None,
+            0,
+            (255, 0),
+        )
+        .unwrap();
         let frame = String::from_utf8_lossy(&output);
         assert!(frame.contains("Exit mux?"));
         assert!(frame.contains("Cancel"));
@@ -97,11 +118,11 @@ mod tests {
         crate::render::enable_color_passthrough();
         let layout = Layout::new(80, 24, true, 18);
         let mut idle = Vec::new();
-        draw_exit_dialog(&mut idle, layout, false).unwrap();
+        draw_exit_dialog(&mut idle, layout, false, 255, None, 0, (255, 0)).unwrap();
         assert!(String::from_utf8_lossy(&idle).contains("38;2;220;105;105"));
 
         let mut selected = Vec::new();
-        draw_exit_dialog(&mut selected, layout, true).unwrap();
+        draw_exit_dialog(&mut selected, layout, true, 255, None, 0, (0, 255)).unwrap();
         assert!(String::from_utf8_lossy(&selected).contains("48;2;104;48;48"));
     }
 }
