@@ -554,9 +554,9 @@ fn working_glint_bg(active: bool, step: u64, column: usize, width: usize) -> Col
     let distance = (column - center).unsigned_abs() as usize;
     let weight = WEIGHT.get(distance).copied().unwrap_or(0);
     let (base, target) = if active {
-        ((48, 48, 48), (64, 60, 52))
+        ((48, 48, 48), (56, 64, 77))
     } else {
-        ((36, 36, 36), (50, 47, 41))
+        ((36, 36, 36), (44, 51, 62))
     };
 
     fn blend(base: u8, target: u8, weight: u16) -> u8 {
@@ -617,22 +617,34 @@ fn ready_badge_spans(
     base_bg: Color,
     base_fg: Color,
 ) -> Vec<SidebarPaintSpan> {
-    const BADGE: &str = " READY ";
-    const BADGE_WIDTH: usize = 7;
+    const BADGE: &str = " ✓ ";
+    const BADGE_WIDTH: usize = 3;
     let badge_bg = Color::Rgb {
-        r: 105,
-        g: 180,
-        b: 132,
+        r: 55,
+        g: 82,
+        b: 65,
     };
     let badge_fg = Color::Rgb {
-        r: 18,
-        g: 28,
-        b: 22,
+        r: 184,
+        g: 219,
+        b: 196,
     };
 
-    if width <= BADGE_WIDTH {
+    if width < BADGE_WIDTH {
+        let mut text = " ".repeat(width.saturating_sub(1));
+        if width > 0 {
+            text.push('✓');
+        }
         return vec![SidebarPaintSpan {
-            text: pad_fit("READY", width),
+            text,
+            bg: badge_bg,
+            fg: badge_fg,
+        }];
+    }
+
+    if width == BADGE_WIDTH {
+        return vec![SidebarPaintSpan {
+            text: BADGE.to_string(),
             bg: badge_bg,
             fg: badge_fg,
         }];
@@ -1743,22 +1755,22 @@ mod tests {
             }
         }
 
-        assert_eq!(rgb(working_glint_bg(true, 18, 5, 18)), (64, 60, 52));
+        assert_eq!(rgb(working_glint_bg(true, 18, 5, 18)), (56, 64, 77));
         assert_eq!(rgb(working_glint_bg(true, 0, 17, 18)), (48, 48, 48));
 
         for active in [false, true] {
             for column in 0..18 {
                 let before = rgb(working_glint_bg(active, 10, column, 18));
                 let after = rgb(working_glint_bg(active, 11, column, 18));
-                assert!(before.0.abs_diff(after.0) <= 4);
-                assert!(before.1.abs_diff(after.1) <= 4);
-                assert!(before.2.abs_diff(after.2) <= 4);
+                assert!(before.0.abs_diff(after.0) <= 6);
+                assert!(before.1.abs_diff(after.1) <= 6);
+                assert!(before.2.abs_diff(after.2) <= 6);
             }
         }
     }
 
     #[test]
-    fn ready_is_a_right_aligned_badge_with_dark_text() {
+    fn ready_is_a_compact_right_aligned_symbol_badge() {
         let base_bg = Color::Rgb {
             r: 48,
             g: 48,
@@ -1774,25 +1786,31 @@ mod tests {
         let badge = spans.last().unwrap();
 
         assert_eq!(UnicodeWidthStr::width(text.as_str()), 18);
-        assert!(text.ends_with(" READY "));
+        assert!(text.ends_with(" ✓ "));
         assert_eq!(
             badge.bg,
             Color::Rgb {
-                r: 105,
-                g: 180,
-                b: 132
+                r: 55,
+                g: 82,
+                b: 65
             }
         );
         assert_eq!(
             badge.fg,
             Color::Rgb {
-                r: 18,
-                g: 28,
-                b: 22
+                r: 184,
+                g: 219,
+                b: 196
             }
         );
 
-        for width in [1, 5, 7, 10, 18] {
+        for (width, expected) in [(1, "✓"), (2, " ✓"), (3, " ✓ ")] {
+            let spans = ready_badge_spans("codex", width, base_bg, base_fg);
+            let text: String = spans.iter().map(|span| span.text.as_str()).collect();
+            assert_eq!(text, expected);
+        }
+
+        for width in [1, 2, 3, 10, 18] {
             let spans = ready_badge_spans("codex", width, base_bg, base_fg);
             let text: String = spans.iter().map(|span| span.text.as_str()).collect();
             assert_eq!(UnicodeWidthStr::width(text.as_str()), width);
