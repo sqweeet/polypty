@@ -389,13 +389,13 @@ impl SidebarCache {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SidebarPaintRow {
     spans: Vec<SidebarPaintSpan>,
-    fg: Color,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct SidebarPaintSpan {
     text: String,
     bg: Color,
+    fg: Color,
 }
 
 /// Sidebar tab row model — cmux-style primary + secondary.
@@ -439,8 +439,8 @@ fn build_cards(tabs: &[SidebarTab], inner_w: usize) -> Vec<TabCard> {
                 AgentState::Blocked => 8,
             };
             let primary = match status.state {
-                AgentState::Working => status.kind.label().to_string(),
-                AgentState::Ready | AgentState::Blocked => {
+                AgentState::Working | AgentState::Ready => status.kind.label().to_string(),
+                AgentState::Blocked => {
                     format!("{} · {}", status.kind.label(), status.state.label())
                 }
             };
@@ -545,20 +545,30 @@ fn card_viewport_rows(cards: &[TabCard], capacity: usize) -> Vec<SidebarContentR
 }
 
 fn working_glint_bg(active: bool, step: u64, column: usize, width: usize) -> Color {
-    let cycle = width.saturating_add(6).max(1) as u64;
-    let center = (step % cycle) as isize - 3;
-    let distance = (column as isize - center).unsigned_abs();
-    let lift = match distance {
-        0 => 16,
-        1 => 9,
-        2 => 3,
-        _ => 0,
+    const SUBSTEPS_PER_CELL: u64 = 2;
+    const WEIGHT: [u16; 9] = [255, 245, 217, 174, 126, 82, 45, 20, 0];
+
+    let cycle = (width.saturating_add(8).max(1) as u64) * SUBSTEPS_PER_CELL;
+    let center = (step % cycle) as i64 - 4 * SUBSTEPS_PER_CELL as i64;
+    let column = (column as i64) * SUBSTEPS_PER_CELL as i64;
+    let distance = (column - center).unsigned_abs() as usize;
+    let weight = WEIGHT.get(distance).copied().unwrap_or(0);
+    let (base, target) = if active {
+        ((48, 48, 48), (64, 60, 52))
+    } else {
+        ((36, 36, 36), (50, 47, 41))
     };
-    let base = if active { 48 } else { 36 };
+
+    fn blend(base: u8, target: u8, weight: u16) -> u8 {
+        let base = u16::from(base);
+        let target = u16::from(target);
+        ((base * (255 - weight) + target * weight + 127) / 255) as u8
+    }
+
     Color::Rgb {
-        r: base + lift,
-        g: base + lift * 2 / 3,
-        b: base + lift / 4,
+        r: blend(base.0, target.0, weight),
+        g: blend(base.1, target.1, weight),
+        b: blend(base.2, target.2, weight),
     }
 }
 
@@ -566,6 +576,7 @@ fn sidebar_paint_spans(
     label: &str,
     width: usize,
     base_bg: Color,
+    base_fg: Color,
     glint: Option<(bool, u64)>,
 ) -> Vec<SidebarPaintSpan> {
     let padded = pad_fit(label, width);
@@ -583,16 +594,56 @@ fn sidebar_paint_spans(
         let bg = glint
             .map(|(active, step)| working_glint_bg(active, step, column, width))
             .unwrap_or(base_bg);
-        if let Some(span) = spans.last_mut().filter(|span| span.bg == bg) {
+        if let Some(span) = spans
+            .last_mut()
+            .filter(|span| span.bg == bg && span.fg == base_fg)
+        {
             span.text.push_str(grapheme);
         } else {
             spans.push(SidebarPaintSpan {
                 text: grapheme.to_string(),
                 bg,
+                fg: base_fg,
             });
         }
         column = column.saturating_add(grapheme_width);
     }
+    spans
+}
+
+fn ready_badge_spans(
+    label: &str,
+    width: usize,
+    base_bg: Color,
+    base_fg: Color,
+) -> Vec<SidebarPaintSpan> {
+    const BADGE: &str = " READY ";
+    const BADGE_WIDTH: usize = 7;
+    let badge_bg = Color::Rgb {
+        r: 105,
+        g: 180,
+        b: 132,
+    };
+    let badge_fg = Color::Rgb {
+        r: 18,
+        g: 28,
+        b: 22,
+    };
+
+    if width <= BADGE_WIDTH {
+        return vec![SidebarPaintSpan {
+            text: pad_fit("READY", width),
+            bg: badge_bg,
+            fg: badge_fg,
+        }];
+    }
+
+    let mut spans = sidebar_paint_spans(label, width - BADGE_WIDTH, base_bg, base_fg, None);
+    spans.push(SidebarPaintSpan {
+        text: BADGE.to_string(),
+        bg: badge_bg,
+        fg: badge_fg,
+    });
     spans
 }
 
@@ -686,11 +737,6 @@ pub fn draw_sidebar(
         g: 96,
         b: 96,
     };
-    let fg_ready = Color::Rgb {
-        r: 112,
-        g: 184,
-        b: 136,
-    };
     let fg_blocked = Color::Rgb {
         r: 220,
         g: 105,
@@ -742,8 +788,8 @@ pub fn draw_sidebar(
         if let Some(idx) = tab_idx {
             map.row_tab[y] = Some(idx);
         }
-        let working_primary = agent_state == Some(AgentState::Working) && kind == 7;
-        map.has_visible_working |= working_primary;
+        let working_row = agent_state == Some(AgentState::Working);
+        map.has_visible_working |= working_row;
 
         let row_bg = if active && kind != 0 { bg_active } else { bg };
         let fg = match kind {
@@ -752,22 +798,26 @@ pub fn draw_sidebar(
             3 if active => fg_sec_active,
             3 | 4 => fg_sec_idle,
             5 => fg_idle,
-            6 => fg_ready,
+            6 if active => fg_active,
+            6 => fg_idle,
             7 if active => fg_active,
             7 => fg_idle,
             8 => fg_blocked,
             _ => fg_idle,
         };
 
-        painted_rows.push(SidebarPaintRow {
-            spans: sidebar_paint_spans(
+        let spans = if kind == 6 {
+            ready_badge_spans(text, w, row_bg, fg)
+        } else {
+            sidebar_paint_spans(
                 text,
                 w,
                 row_bg,
-                working_primary.then_some((active, glint_step)),
-            ),
-            fg,
-        });
+                fg,
+                working_row.then_some((active, glint_step)),
+            )
+        };
+        painted_rows.push(SidebarPaintRow { spans });
     }
 
     let width_changed = cache.width != layout.sidebar_width;
@@ -783,9 +833,14 @@ pub fn draw_sidebar(
             queue!(out, Hide)?;
             cursor_hidden = true;
         }
-        queue!(out, MoveTo(0, y as u16), SetForegroundColor(row.fg))?;
+        queue!(out, MoveTo(0, y as u16))?;
         for span in &row.spans {
-            queue!(out, SetBackgroundColor(span.bg), Print(&span.text))?;
+            queue!(
+                out,
+                SetForegroundColor(span.fg),
+                SetBackgroundColor(span.bg),
+                Print(&span.text)
+            )?;
         }
     }
 
@@ -1503,6 +1558,7 @@ mod tests {
                     g: 48,
                     b: 48,
                 },
+                Color::White,
                 Some((true, 7)),
             );
             let text: String = spans.iter().map(|span| span.text.as_str()).collect();
@@ -1634,10 +1690,7 @@ mod tests {
         assert_eq!(cards[0].lines[1], (3, "~/projects/mux".into()));
 
         tabs[0].agent.as_mut().unwrap().state = AgentState::Ready;
-        assert_eq!(
-            build_cards(&tabs, 18)[0].lines[0],
-            (6, "codex · ready".into())
-        );
+        assert_eq!(build_cards(&tabs, 18)[0].lines[0], (6, "codex".into()));
         tabs[0].agent.as_mut().unwrap().state = AgentState::Blocked;
         assert_eq!(
             build_cards(&tabs, 18)[0].lines[0],
@@ -1646,7 +1699,7 @@ mod tests {
     }
 
     #[test]
-    fn working_glint_changes_only_the_primary_row() {
+    fn working_glint_covers_both_rows_of_the_card() {
         let layout = Layout::new(40, 12, true, 18);
         let tabs = [SidebarTab {
             primary: "node".into(),
@@ -1678,7 +1731,74 @@ mod tests {
         draw_sidebar(&mut out, &layout, &tabs, &mut cache, 7, false).unwrap();
         assert!(!out.is_empty());
         assert_ne!(cache.rows[1], primary);
-        assert_eq!(cache.rows[2], secondary);
+        assert_ne!(cache.rows[2], secondary);
+    }
+
+    #[test]
+    fn glint_colors_move_in_small_interpolated_steps() {
+        fn rgb(color: Color) -> (u8, u8, u8) {
+            match color {
+                Color::Rgb { r, g, b } => (r, g, b),
+                _ => panic!("expected RGB color"),
+            }
+        }
+
+        assert_eq!(rgb(working_glint_bg(true, 18, 5, 18)), (64, 60, 52));
+        assert_eq!(rgb(working_glint_bg(true, 0, 17, 18)), (48, 48, 48));
+
+        for active in [false, true] {
+            for column in 0..18 {
+                let before = rgb(working_glint_bg(active, 10, column, 18));
+                let after = rgb(working_glint_bg(active, 11, column, 18));
+                assert!(before.0.abs_diff(after.0) <= 4);
+                assert!(before.1.abs_diff(after.1) <= 4);
+                assert!(before.2.abs_diff(after.2) <= 4);
+            }
+        }
+    }
+
+    #[test]
+    fn ready_is_a_right_aligned_badge_with_dark_text() {
+        let base_bg = Color::Rgb {
+            r: 48,
+            g: 48,
+            b: 48,
+        };
+        let base_fg = Color::Rgb {
+            r: 188,
+            g: 188,
+            b: 188,
+        };
+        let spans = ready_badge_spans("codex", 18, base_bg, base_fg);
+        let text: String = spans.iter().map(|span| span.text.as_str()).collect();
+        let badge = spans.last().unwrap();
+
+        assert_eq!(UnicodeWidthStr::width(text.as_str()), 18);
+        assert!(text.ends_with(" READY "));
+        assert_eq!(
+            badge.bg,
+            Color::Rgb {
+                r: 105,
+                g: 180,
+                b: 132
+            }
+        );
+        assert_eq!(
+            badge.fg,
+            Color::Rgb {
+                r: 18,
+                g: 28,
+                b: 22
+            }
+        );
+
+        for width in [1, 5, 7, 10, 18] {
+            let spans = ready_badge_spans("codex", width, base_bg, base_fg);
+            let text: String = spans.iter().map(|span| span.text.as_str()).collect();
+            assert_eq!(UnicodeWidthStr::width(text.as_str()), width);
+            assert_eq!(spans.last().unwrap().fg, badge.fg);
+            assert_eq!(spans.last().unwrap().bg, badge.bg);
+        }
     }
 
     #[test]

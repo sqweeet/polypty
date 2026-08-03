@@ -26,9 +26,9 @@ const RESIZE_CHILD_REDRAW_DELAY: Duration = Duration::from_millis(12);
 /// than one 60 Hz frame of latency to continuously streaming output.
 const OUTPUT_QUIET_DELAY: Duration = Duration::from_millis(3);
 const OUTPUT_MAX_FRAME_DELAY: Duration = Duration::from_millis(16);
-/// One low-contrast background cell moves per frame; a default sidebar sweep
-/// takes roughly three seconds without animating text or layout.
-const SIDEBAR_GLINT_FRAME: Duration = Duration::from_millis(120);
+/// Two interpolated color steps per cell keep the full-card sweep smooth while
+/// preserving a calm roughly four-second pass at the default sidebar width.
+const SIDEBAR_GLINT_FRAME: Duration = Duration::from_millis(80);
 /// Ordinary shell echo must not blink the block cursor. Only suppress it for
 /// substantial redraw bursts (or while a resize already owns the cursor).
 const CURSOR_SUPPRESS_BURST_BYTES: usize = 512;
@@ -964,8 +964,8 @@ mod tests {
     #[test]
     fn glint_step_is_quantized_without_timer_drift() {
         let epoch = Instant::now();
-        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(119)), 0);
-        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(120)), 1);
-        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(481)), 4);
+        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(79)), 0);
+        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(80)), 1);
+        assert_eq!(glint_step(epoch, epoch + Duration::from_millis(321)), 4);
     }
 }
